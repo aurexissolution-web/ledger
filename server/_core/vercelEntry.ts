@@ -1,10 +1,21 @@
+import path from "node:path";
 import { createApp } from "./app";
 
-// Source for the Vercel serverless function. Built by `vercel.json`'s
-// buildCommand into a single self-contained api/index.js (via esbuild
-// --bundle), rather than shipping this as api/index.ts directly — Vercel's
-// own per-file TypeScript compiler + file tracer failed to include our local
-// server/shared files in the deployed function (ERR_MODULE_NOT_FOUND at
-// runtime for server/_core/app), even though the build itself succeeded.
-// Pre-bundling avoids depending on that tracer working correctly at all.
-export default createApp();
+const app = createApp();
+
+// vercel.json rewrites every non-static-file request to this one function
+// (the exact pattern Vercel's own Express guide documents:
+// https://vercel.com/guides/using-express-with-vercel). Any request that
+// reaches here without matching an API route above is a client-side route
+// (e.g. /subcon) or the app shell itself — serve the built SPA's
+// index.html so wouter can take over. Real static assets
+// (dist/public/assets/*) are served directly by Vercel's CDN via
+// static-file priority before this function is ever invoked; only
+// index.html itself is force-included into this function's deployment via
+// vercel.json's functions.includeFiles, since it isn't reachable through a
+// JS import for Vercel's bundler to trace automatically.
+app.get("*", (_req, res) => {
+  res.sendFile(path.resolve(process.cwd(), "dist/public/index.html"));
+});
+
+export default app;
