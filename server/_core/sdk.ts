@@ -341,6 +341,8 @@ function buildCronUser(
     loginMethod: null,
     role: "user",
     pinHash: null,
+    pinFailCount: 0,
+    pinLockedUntil: null,
     createdAt: now,
     updatedAt: now,
     lastSignedIn: now,

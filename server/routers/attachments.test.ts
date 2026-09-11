@@ -15,7 +15,7 @@ import { attachmentsRouter } from "./attachments";
 
 function createContext(role: "admin" | "user", userId = 5): TrpcContext {
   return {
-    user: { id: userId, householdId: 47, pinHash: null, openId: "profile", email: null, name: "Sanjay", loginMethod: "pin", role, createdAt: new Date(), updatedAt: new Date(), lastSignedIn: new Date() },
+    user: { id: userId, householdId: 47, pinHash: null, pinFailCount: 0, pinLockedUntil: null, openId: "profile", email: null, name: "Sanjay", loginMethod: "pin", role, createdAt: new Date(), updatedAt: new Date(), lastSignedIn: new Date() },
     req: {} as TrpcContext["req"],
     res: {} as TrpcContext["res"],
   };

@@ -65,12 +65,16 @@ export type User = {
   role: UserRole;
   /** Salted scrypt hash; null for accounts that never set a PIN (e.g. legacy OAuth users). */
   pinHash: string | null;
+  /** Failed PIN attempts since the last success or lockout. Stored in Mongo (not memory) so lockout survives serverless cold starts. */
+  pinFailCount: number;
+  /** Set once pinFailCount hits the limit; null when not locked. */
+  pinLockedUntil: Date | null;
   createdAt: Date;
   updatedAt: Date;
   lastSignedIn: Date;
 };
 
-export type PublicUser = Omit<User, "pinHash">;
+export type PublicUser = Omit<User, "pinHash" | "pinFailCount" | "pinLockedUntil">;
 
 export type InsertUser = {
   openId: string;

@@ -18,31 +18,3 @@ export async function verifyPin(pin: string, stored: string): Promise<boolean> {
   const candidate = await scryptAsync(pin, salt, 64);
   return candidate.length === expected.length && timingSafeEqual(candidate, expected);
 }
-
-const MAX_ATTEMPTS = 5;
-const LOCK_MS = 60_000;
-const failures = new Map<number, { count: number; lockedUntil: number }>();
-
-export function getLockRemainingMs(userId: number): number {
-  const entry = failures.get(userId);
-  if (!entry) return 0;
-  return Math.max(0, entry.lockedUntil - Date.now());
-}
-
-/** Records a failed attempt and returns how many attempts remain before lockout (0 = now locked). */
-export function recordPinFailure(userId: number): number {
-  const entry = failures.get(userId) ?? { count: 0, lockedUntil: 0 };
-  entry.count += 1;
-  if (entry.count >= MAX_ATTEMPTS) {
-    entry.lockedUntil = Date.now() + LOCK_MS;
-    entry.count = 0;
-    failures.set(userId, entry);
-    return 0;
-  }
-  failures.set(userId, entry);
-  return MAX_ATTEMPTS - entry.count;
-}
-
-export function clearPinFailures(userId: number): void {
-  failures.delete(userId);
-}

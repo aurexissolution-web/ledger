@@ -3,7 +3,7 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import type { PublicUser, User, UserRole } from "../shared/schema";
 import { getSessionCookieOptions } from "./_core/cookies";
-import { PIN_PATTERN, clearPinFailures, getLockRemainingMs, hashPin, recordPinFailure, verifyPin } from "./_core/pin";
+import { PIN_PATTERN, hashPin, verifyPin } from "./_core/pin";
 import { sdk } from "./_core/sdk";
 import { systemRouter } from "./_core/systemRouter";
 import type { TrpcContext } from "./_core/context";
@@ -61,19 +61,19 @@ export const appRouter = router({
       return profiles.map(profile => ({ id: profile.id, name: profile.name ?? "Profile", role: profile.role }));
     }),
     loginWithPin: publicProcedure.input(z.object({ userId: z.number().int().positive(), pin: pinInput })).mutation(async ({ ctx, input }) => {
-      const lockMs = getLockRemainingMs(input.userId);
+      const lockMs = await db.getPinLockRemainingMs(input.userId);
       if (lockMs > 0) {
         throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: `Too many attempts. Try again in ${Math.ceil(lockMs / 1000)}s.` });
       }
       const user = await db.getUserById(input.userId);
       if (!user?.pinHash || !(await verifyPin(input.pin, user.pinHash))) {
-        const remaining = recordPinFailure(input.userId);
+        const remaining = await db.recordPinFailure(input.userId);
         throw new TRPCError({
           code: "UNAUTHORIZED",
           message: remaining > 0 ? `Incorrect PIN. ${remaining} ${remaining === 1 ? "attempt" : "attempts"} left.` : "Too many attempts. This profile is locked for 1 minute.",
         });
       }
-      clearPinFailures(user.id);
+      await db.clearPinFailures(user.id);
       await db.touchLastSignedIn(user.id);
       await startSession(ctx, user);
       return { success: true };

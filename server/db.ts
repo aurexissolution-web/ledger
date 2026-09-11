@@ -129,6 +129,8 @@ export async function createProfileUser(input: { householdId: number; name: stri
     loginMethod: "pin",
     role: input.role,
     pinHash: input.pinHash,
+    pinFailCount: 0,
+    pinLockedUntil: null,
     createdAt: now,
     updatedAt: now,
     lastSignedIn: now,
@@ -140,6 +142,36 @@ export async function createProfileUser(input: { householdId: number; name: stri
 export async function setUserPin(userId: number, pinHash: string): Promise<void> {
   const db = await requireDb();
   await db.collection(COLLECTIONS.users).updateOne({ id: userId }, { $set: { pinHash, updatedAt: new Date() } });
+}
+
+const PIN_MAX_ATTEMPTS = 5;
+const PIN_LOCK_MS = 60_000;
+
+/** ms remaining on an active lockout, or 0 if the profile can attempt a PIN now. Stored in Mongo, not memory, so it survives serverless cold starts. */
+export async function getPinLockRemainingMs(userId: number): Promise<number> {
+  const db = await requireDb();
+  const user = await db.collection<User>(COLLECTIONS.users).findOne({ id: userId }, { projection: { pinLockedUntil: 1 } });
+  const lockedUntil = user?.pinLockedUntil;
+  if (!lockedUntil) return 0;
+  return Math.max(0, new Date(lockedUntil).getTime() - Date.now());
+}
+
+/** Records a failed PIN attempt; returns attempts remaining before lockout (0 = now locked). */
+export async function recordPinFailure(userId: number): Promise<number> {
+  const db = await requireDb();
+  const collection = db.collection<User>(COLLECTIONS.users);
+  const result = await collection.findOneAndUpdate({ id: userId }, { $inc: { pinFailCount: 1 } }, { returnDocument: "after" });
+  const count = result?.pinFailCount ?? 1;
+  if (count >= PIN_MAX_ATTEMPTS) {
+    await collection.updateOne({ id: userId }, { $set: { pinFailCount: 0, pinLockedUntil: new Date(Date.now() + PIN_LOCK_MS) } });
+    return 0;
+  }
+  return PIN_MAX_ATTEMPTS - count;
+}
+
+export async function clearPinFailures(userId: number): Promise<void> {
+  const db = await requireDb();
+  await db.collection(COLLECTIONS.users).updateOne({ id: userId }, { $set: { pinFailCount: 0, pinLockedUntil: null } });
 }
 
 export async function touchLastSignedIn(userId: number): Promise<void> {

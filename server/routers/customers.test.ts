@@ -19,6 +19,8 @@ function createContext(householdId = 47, role: "admin" | "user" = "user"): TrpcC
       id: 900,
       householdId,
       pinHash: null,
+      pinFailCount: 0,
+      pinLockedUntil: null,
       openId: "record-owner",
       email: null,
       name: "Sanjay",

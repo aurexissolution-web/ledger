@@ -19,6 +19,8 @@ function createContext(userId = 47): TrpcContext {
       id: userId,
       householdId: userId,
       pinHash: null,
+      pinFailCount: 0,
+      pinLockedUntil: null,
       openId: "record-owner",
       email: "owner@example.com",
       name: "Record Owner",

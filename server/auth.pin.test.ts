@@ -9,6 +9,9 @@ const dbMock = vi.hoisted(() => ({
   getUserById: vi.fn(),
   touchLastSignedIn: vi.fn(),
   setUserPin: vi.fn(),
+  getPinLockRemainingMs: vi.fn(),
+  recordPinFailure: vi.fn(),
+  clearPinFailures: vi.fn(),
 }));
 
 const sdkMock = vi.hoisted(() => ({ createSessionToken: vi.fn() }));
@@ -20,7 +23,7 @@ import { hashPin, verifyPin } from "./_core/pin";
 import { DEFAULT_PIN, appRouter } from "./routers";
 
 function profileUser(id: number, pinHash: string, name = "Dad", role: User["role"] = "admin"): User {
-  return { id, householdId: 1, openId: `profile-${id}`, name, email: null, loginMethod: "pin", role, pinHash, createdAt: new Date(), updatedAt: new Date(), lastSignedIn: new Date() };
+  return { id, householdId: 1, openId: `profile-${id}`, name, email: null, loginMethod: "pin", role, pinHash, pinFailCount: 0, pinLockedUntil: null, createdAt: new Date(), updatedAt: new Date(), lastSignedIn: new Date() };
 }
 
 function createContext(user: User | null = null) {
@@ -40,6 +43,8 @@ describe("auth profiles + PIN", () => {
     dbMock.allocateHouseholdId.mockResolvedValue(1);
     dbMock.touchLastSignedIn.mockResolvedValue(undefined);
     dbMock.setUserPin.mockResolvedValue(undefined);
+    dbMock.getPinLockRemainingMs.mockResolvedValue(0);
+    dbMock.clearPinFailures.mockResolvedValue(undefined);
   });
 
   it("seeds Dad (full access) and Sanjay (chili only) in one household on first use", async () => {
@@ -77,16 +82,31 @@ describe("auth profiles + PIN", () => {
     expect(dbMock.touchLastSignedIn).toHaveBeenCalledWith(7);
   });
 
-  it("rejects a wrong PIN and locks the profile after five failures", async () => {
+  it("rejects a wrong PIN and locks the profile after five failures (state kept in Mongo, not memory)", async () => {
     dbMock.getUserById.mockResolvedValue(profileUser(8, await hashPin("1234")));
+    // Simulate the stateful Mongo counter/lock that db.recordPinFailure/getPinLockRemainingMs
+    // would maintain — this is exactly what makes lockout survive a serverless cold start.
+    let failCount = 0;
+    let lockedUntil = 0;
+    dbMock.getPinLockRemainingMs.mockImplementation(async () => Math.max(0, lockedUntil - Date.now()));
+    dbMock.recordPinFailure.mockImplementation(async () => {
+      failCount += 1;
+      if (failCount >= 5) {
+        lockedUntil = Date.now() + 60_000;
+        failCount = 0;
+        return 0;
+      }
+      return 5 - failCount;
+    });
     const { ctx, cookies } = createContext();
     const caller = appRouter.createCaller(ctx);
 
     await expect(caller.auth.loginWithPin({ userId: 8, pin: "0000" })).rejects.toThrow(/Incorrect PIN\. 4 attempts left/);
-    for (let attempt = 0; attempt < 4; attempt++) {
+    for (let attempt = 0; attempt < 3; attempt++) {
       await expect(caller.auth.loginWithPin({ userId: 8, pin: "0000" })).rejects.toThrow();
     }
-    await expect(caller.auth.loginWithPin({ userId: 8, pin: "1234" })).rejects.toThrow(/Too many attempts/);
+    await expect(caller.auth.loginWithPin({ userId: 8, pin: "0000" })).rejects.toThrow(/Too many attempts.*locked/);
+    await expect(caller.auth.loginWithPin({ userId: 8, pin: "1234" })).rejects.toThrow(/Too many attempts.*Try again/);
     expect(cookies).toHaveLength(0);
   });
 

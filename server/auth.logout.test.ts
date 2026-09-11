@@ -17,6 +17,8 @@ function createAuthContext(): { ctx: TrpcContext; clearedCookies: CookieCall[] }
     id: 1,
     householdId: 1,
     pinHash: null,
+    pinFailCount: 0,
+    pinLockedUntil: null,
     openId: "sample-user",
     email: "sample@example.com",
     name: "Sample User",

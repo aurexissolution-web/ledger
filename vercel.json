@@ -1,0 +1,10 @@
+{
+  "buildCommand": "vite build",
+  "outputDirectory": "dist/public",
+  "rewrites": [
+    { "source": "/((?!api/).*)", "destination": "/index.html" }
+  ],
+  "crons": [
+    { "path": "/api/cron/sweep-orphans", "schedule": "0 */6 * * *" }
+  ]
+}
