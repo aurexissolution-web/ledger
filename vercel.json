@@ -1,9 +1,10 @@
 {
   "buildCommand": "vite build && mkdir -p api && esbuild server/_core/vercelEntry.ts --bundle --platform=node --format=esm --packages=external --outfile=api/index.js",
   "outputDirectory": "dist/public",
-  "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api" },
-    { "source": "/((?!api/).*)", "destination": "/index.html" }
+  "routes": [
+    { "src": "/api/(.*)", "dest": "/api" },
+    { "handle": "filesystem" },
+    { "src": "/(.*)", "dest": "/index.html" }
   ],
   "crons": [
     { "path": "/api/cron/sweep-orphans", "schedule": "0 3 * * *" }
