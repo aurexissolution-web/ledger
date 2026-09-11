@@ -4,8 +4,13 @@ import { COLLECTIONS } from "../shared/schema";
 
 // Some local networks (e.g. phone hotspots) run DNS resolvers that can't
 // answer the SRV lookup mongodb+srv:// needs, failing with EBADRESP. Public
-// resolvers handle it reliably, so prefer them for this process.
-dns.setServers(["8.8.8.8", "1.1.1.1", ...dns.getServers()]);
+// resolvers handle it reliably, so prefer them for local dev. Skip this on
+// Vercel (and other real hosting) — its network doesn't have that problem,
+// and this would just add an unnecessary extra DNS round-trip to every cold
+// start.
+if (!process.env.VERCEL) {
+  dns.setServers(["8.8.8.8", "1.1.1.1", ...dns.getServers()]);
+}
 
 let _client: MongoClient | null = null;
 let _db: Db | null = null;
