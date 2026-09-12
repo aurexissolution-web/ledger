@@ -1,15 +1,15 @@
 import { TRPCError } from "@trpc/server";
-import { GridFSBucket, ObjectId, type Db } from "mongodb";
-import { Readable } from "node:stream";
-import { ATTACHMENT_BUCKET, COLLECTIONS, type Attachment, type AttachmentKind, type AttachmentLinkType, type AttachmentMime } from "../shared/schema";
-import { getDb, nextId } from "./mongo";
+import { randomUUID } from "node:crypto";
+import type { Attachment, AttachmentKind, AttachmentLinkType, AttachmentMime } from "../shared/schema";
+import { fromRow, fromRows, requireSupabase, toRow } from "./supabase";
 
 export const MAX_IMAGE_BYTES = 1_500_000;
 export const MAX_PDF_BYTES = 5_000_000;
 export const MAX_ATTACHMENTS_PER_RECORD = 8;
 export const MAX_PENDING_PER_HOUSEHOLD = 40;
-export const STORAGE_QUOTA_BYTES = 512 * 1024 * 1024;
-export const STORAGE_SOFT_LIMIT_BYTES = 450 * 1024 * 1024;
+// Supabase free-plan Storage allowance.
+export const STORAGE_QUOTA_BYTES = 1024 * 1024 * 1024;
+export const STORAGE_SOFT_LIMIT_BYTES = 900 * 1024 * 1024;
 const ORPHAN_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 /* ------------------------------------------------------------------ */
@@ -54,41 +54,26 @@ export function uniqueIds(ids: number[]): number[] {
 /* Storage                                                              */
 /* ------------------------------------------------------------------ */
 
-async function requireDb(): Promise<Db> {
-  const db = await getDb();
-  if (!db) throw new Error("Database is unavailable");
-  return db;
+
+/** File bytes live in the private "attachments" Supabase Storage bucket; `fileId` is the object path. */
+const BUCKET = "attachments";
+
+function bucket() {
+  return requireSupabase().storage.from(BUCKET);
 }
 
-function getBucket(db: Db) {
-  return new GridFSBucket(db, { bucketName: ATTACHMENT_BUCKET });
+async function putFile(householdId: number, contentType: string, buffer: Buffer): Promise<string> {
+  const path = `${householdId}/${randomUUID()}`;
+  const { error } = await bucket().upload(path, buffer, { contentType, upsert: false });
+  if (error) throw error;
+  return path;
 }
 
-function collection(db: Db) {
-  return db.collection<Attachment>(COLLECTIONS.attachments);
-}
-
-function stripMongoId(doc: Attachment | null): Attachment | undefined {
-  if (!doc) return undefined;
-  const { _id, ...rest } = doc as Attachment & { _id?: unknown };
-  return rest;
-}
-
-async function putFile(db: Db, fileName: string, contentType: string, buffer: Buffer, householdId: number): Promise<string> {
-  const upload = getBucket(db).openUploadStream(fileName, { contentType, metadata: { householdId } });
-  await new Promise<void>((resolve, reject) => {
-    Readable.from(buffer).pipe(upload).on("error", reject).on("finish", () => resolve());
-  });
-  return upload.id.toHexString();
-}
-
-async function removeFile(db: Db, fileIdHex: string | null): Promise<void> {
-  if (!fileIdHex) return;
-  try {
-    await getBucket(db).delete(new ObjectId(fileIdHex));
-  } catch (error) {
-    if (!/FileNotFound|not found/i.test(String(error))) throw error;
-  }
+async function removeFiles(paths: (string | null)[]): Promise<void> {
+  const existing = paths.filter((path): path is string => Boolean(path));
+  if (existing.length === 0) return;
+  const { error } = await bucket().remove(existing);
+  if (error) throw error;
 }
 
 export async function storeAttachment(input: {
@@ -101,80 +86,92 @@ export async function storeAttachment(input: {
   width: number | null;
   height: number | null;
 }): Promise<Attachment> {
-  const db = await requireDb();
-  const fileId = await putFile(db, input.fileName, input.mimeType, input.buffer, input.householdId);
-  const id = await nextId(db, COLLECTIONS.attachments);
-  const now = new Date();
-  const attachment: Attachment = {
-    id,
-    userId: input.householdId,
-    uploadedByUserId: input.uploadedByUserId,
-    kind: input.kind,
-    fileName: input.fileName,
-    mimeType: input.mimeType,
-    sizeBytes: input.buffer.length,
-    width: input.width,
-    height: input.height,
-    fileId,
-    thumbFileId: null,
-    linkedType: null,
-    linkedId: null,
-    createdAt: now,
-    updatedAt: now,
-  };
-  await collection(db).insertOne({ ...attachment });
-  return attachment;
+  const fileId = await putFile(input.householdId, input.mimeType, input.buffer);
+  try {
+    const { data } = await requireSupabase()
+      .from("attachments")
+      .insert(toRow({
+        userId: input.householdId,
+        uploadedByUserId: input.uploadedByUserId,
+        kind: input.kind,
+        fileName: input.fileName,
+        mimeType: input.mimeType,
+        sizeBytes: input.buffer.length,
+        width: input.width,
+        height: input.height,
+        fileId,
+      }))
+      .select("*")
+      .single()
+      .throwOnError();
+    return fromRow<Attachment>(data);
+  } catch (error) {
+    await removeFiles([fileId]).catch(() => {});
+    throw error;
+  }
 }
 
 export async function storeThumbnail(householdId: number, id: number, buffer: Buffer): Promise<boolean> {
-  const db = await requireDb();
-  const existing = await collection(db).findOne({ userId: householdId, id });
+  const existing = await getAttachment(householdId, id);
   if (!existing) return false;
-  const thumbFileId = await putFile(db, `thumb-${existing.fileName}`, "image/jpeg", buffer, householdId);
-  await removeFile(db, existing.thumbFileId);
-  await collection(db).updateOne({ id }, { $set: { thumbFileId, updatedAt: new Date() } });
+  const thumbFileId = await putFile(householdId, "image/jpeg", buffer);
+  await requireSupabase().from("attachments").update({ thumb_file_id: thumbFileId, updated_at: new Date() }).eq("id", id).throwOnError();
+  await removeFiles([existing.thumbFileId]);
   return true;
 }
 
 export async function getAttachment(householdId: number, id: number): Promise<Attachment | undefined> {
-  const db = await requireDb();
-  return stripMongoId(await collection(db).findOne({ userId: householdId, id }));
+  const { data } = await requireSupabase().from("attachments").select("*").eq("user_id", householdId).eq("id", id).maybeSingle().throwOnError();
+  return data ? fromRow<Attachment>(data) : undefined;
 }
 
 export async function getAttachmentsByIds(householdId: number, ids: number[]): Promise<Attachment[]> {
   if (ids.length === 0) return [];
-  const db = await requireDb();
-  const docs = await collection(db).find({ userId: householdId, id: { $in: uniqueIds(ids) } }).toArray();
-  return docs.map(doc => stripMongoId(doc) as Attachment);
+  const { data } = await requireSupabase().from("attachments").select("*").eq("user_id", householdId).in("id", uniqueIds(ids)).throwOnError();
+  return fromRows<Attachment>(data);
 }
 
-export async function openDownload(fileIdHex: string) {
-  const db = await requireDb();
-  return getBucket(db).openDownloadStream(new ObjectId(fileIdHex));
+/** The file's bytes, or null if the object is missing. */
+export async function readFile(fileId: string): Promise<Buffer | null> {
+  const { data, error } = await bucket().download(fileId);
+  if (error || !data) {
+    console.warn(`[Attachments] Could not read ${fileId}:`, error?.message);
+    return null;
+  }
+  return Buffer.from(await data.arrayBuffer());
 }
 
 export async function linkAttachments(householdId: number, ids: number[], linkedType: AttachmentLinkType, linkedId: number): Promise<void> {
   if (ids.length === 0) return;
-  const db = await requireDb();
-  await collection(db).updateMany({ userId: householdId, id: { $in: ids } }, { $set: { linkedType, linkedId, updatedAt: new Date() } });
+  await requireSupabase()
+    .from("attachments")
+    .update({ linked_type: linkedType, linked_id: linkedId, updated_at: new Date() })
+    .eq("user_id", householdId)
+    .in("id", ids)
+    .throwOnError();
 }
 
 export async function deleteAttachments(householdId: number, ids: number[]): Promise<void> {
   if (ids.length === 0) return;
-  const db = await requireDb();
-  const docs = await collection(db).find({ userId: householdId, id: { $in: ids } }).toArray();
+  const supabase = requireSupabase();
+  const { data } = await supabase.from("attachments").select("id, file_id, thumb_file_id").eq("user_id", householdId).in("id", ids).throwOnError();
+  const docs = fromRows<Pick<Attachment, "id" | "fileId" | "thumbFileId">>(data);
   // Bytes first, metadata last: a crash leaves a sweepable row, never an invisible blob.
-  for (const doc of docs) {
-    await removeFile(db, doc.fileId);
-    await removeFile(db, doc.thumbFileId);
+  await removeFiles(docs.flatMap(doc => [doc.fileId, doc.thumbFileId]));
+  if (docs.length > 0) {
+    await supabase.from("attachments").delete().eq("user_id", householdId).in("id", docs.map(doc => doc.id)).throwOnError();
   }
-  await collection(db).deleteMany({ userId: householdId, id: { $in: docs.map(doc => doc.id) } });
 }
 
 export async function deleteAttachmentsForRecord(householdId: number, linkedType: AttachmentLinkType, linkedId: number): Promise<void> {
-  const db = await requireDb();
-  const docs = await collection(db).find({ userId: householdId, linkedType, linkedId }, { projection: { id: 1 } }).toArray();
-  await deleteAttachments(householdId, docs.map(doc => doc.id));
+  const { data } = await requireSupabase()
+    .from("attachments")
+    .select("id")
+    .eq("user_id", householdId)
+    .eq("linked_type", linkedType)
+    .eq("linked_id", linkedId)
+    .throwOnError();
+  await deleteAttachments(householdId, (data ?? []).map(doc => doc.id));
 }
 
 /**
@@ -207,26 +204,30 @@ export async function validateNewAttachments(householdId: number, expected: Reco
 }
 
 export async function countPending(householdId: number): Promise<number> {
-  const db = await requireDb();
-  return collection(db).countDocuments({ userId: householdId, linkedType: null });
+  const { count } = await requireSupabase()
+    .from("attachments")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", householdId)
+    .is("linked_type", null)
+    .throwOnError();
+  return count ?? 0;
 }
 
 export async function storageUsage(): Promise<{ fileCount: number; attachmentBytes: number; storageBytes: number; quotaBytes: number }> {
-  const db = await requireDb();
-  const [agg] = await collection(db).aggregate<{ count: number; bytes: number }>([{ $group: { _id: null, count: { $sum: 1 }, bytes: { $sum: "$sizeBytes" } } }]).toArray();
-  const stats = await db.command({ dbStats: 1 });
+  const { data } = await requireSupabase().rpc("storage_usage").throwOnError();
+  const [usage] = fromRows<{ fileCount: number; attachmentBytes: number; storageBytes: number }>(data);
   return {
-    fileCount: agg?.count ?? 0,
-    attachmentBytes: agg?.bytes ?? 0,
-    storageBytes: Number(stats.storageSize ?? 0) + Number(stats.indexSize ?? 0),
+    fileCount: Number(usage?.fileCount ?? 0),
+    attachmentBytes: Number(usage?.attachmentBytes ?? 0),
+    storageBytes: Number(usage?.storageBytes ?? 0),
     quotaBytes: STORAGE_QUOTA_BYTES,
   };
 }
 
 export async function sweepOrphans(olderThanMs = ORPHAN_MAX_AGE_MS): Promise<number> {
-  const db = await requireDb();
   const cutoff = new Date(Date.now() - olderThanMs);
-  const orphans = await collection(db).find({ linkedType: null, createdAt: { $lt: cutoff } }, { projection: { id: 1, userId: 1 } }).toArray();
+  const { data } = await requireSupabase().from("attachments").select("id, user_id").is("linked_type", null).lt("created_at", cutoff.toISOString()).throwOnError();
+  const orphans = fromRows<Pick<Attachment, "id" | "userId">>(data);
   for (const orphan of orphans) await deleteAttachments(orphan.userId, [orphan.id]);
   return orphans.length;
 }

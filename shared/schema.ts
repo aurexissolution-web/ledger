@@ -1,28 +1,14 @@
 /**
- * Data types for MongoDB-backed collections.
- * Numeric `id`/`userId` fields are assigned by a Mongo counters collection
- * (see server/mongo.ts) so the rest of the app can keep treating them as
- * plain auto-incrementing integers, same as the previous MySQL schema.
+ * Row types for the Supabase tables defined in supabase/schema.sql.
+ * Columns are snake_case in SQL and camelCase here; numeric `id`s are
+ * identity columns.
  */
-
-export const COLLECTIONS = {
-  users: "users",
-  subconJobs: "subcon_jobs",
-  chiliSales: "chili_sales",
-  chiliExpenses: "chili_expenses",
-  staff: "staff",
-  customers: "chili_customers",
-  attachments: "attachments",
-} as const;
-
-/** GridFS bucket holding attachment bytes (creates `attachment_files.files` / `.chunks`). */
-export const ATTACHMENT_BUCKET = "attachment_files";
 
 export type AttachmentKind = "invoice" | "receipt";
 export type AttachmentLinkType = "subconJob" | "chiliSale" | "chiliExpense";
 export type AttachmentMime = "image/jpeg" | "application/pdf";
 
-/** A receipt/invoice file. Bytes live in GridFS; this is the metadata row. */
+/** A receipt/invoice file. Bytes live in Supabase Storage; this is the metadata row. */
 export type Attachment = {
   id: number;
   /** Household scope, stored as `userId` like every other record. */
@@ -35,9 +21,9 @@ export type Attachment = {
   sizeBytes: number;
   width: number | null;
   height: number | null;
-  /** GridFS ObjectId (hex) of the full file. */
+  /** Storage object path of the full file. */
   fileId: string;
-  /** GridFS ObjectId (hex) of the client-made JPEG thumbnail; null for PDFs. */
+  /** Storage object path of the client-made JPEG thumbnail; null for PDFs. */
   thumbFileId: string | null;
   /** null until a record save links it; unlinked files are swept after 24h. */
   linkedType: AttachmentLinkType | null;
@@ -65,7 +51,7 @@ export type User = {
   role: UserRole;
   /** Salted scrypt hash; null for accounts that never set a PIN (e.g. legacy OAuth users). */
   pinHash: string | null;
-  /** Failed PIN attempts since the last success or lockout. Stored in Mongo (not memory) so lockout survives serverless cold starts. */
+  /** Failed PIN attempts since the last success or lockout. Stored in the database (not memory) so lockout survives serverless cold starts. */
   pinFailCount: number;
   /** Set once pinFailCount hits the limit; null when not locked. */
   pinLockedUntil: Date | null;

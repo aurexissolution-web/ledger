@@ -1,22 +1,15 @@
 import { randomUUID } from "node:crypto";
-import type { WithId } from "mongodb";
-import { COLLECTIONS, ChiliExpense, ChiliSale, Customer, InsertUser, Staff, SubconJob, User, UserRole } from "../shared/schema";
+import type { ChiliExpense, ChiliSale, Customer, InsertUser, Staff, SubconJob, User, UserRole } from "../shared/schema";
 import { ENV } from "./_core/env";
-import { getDb as getMongoDb, nextId } from "./mongo";
-
-function withoutMongoId<T extends { _id?: unknown }>(doc: T | null): Omit<T, "_id"> | undefined {
-  if (!doc) return undefined;
-  const { _id, ...rest } = doc;
-  return rest;
-}
+import { fromRow, fromRows, getSupabase, requireSupabase, toRow } from "./supabase";
 
 export async function upsertUser(user: InsertUser): Promise<void> {
   if (!user.openId) {
     throw new Error("User openId is required for upsert");
   }
 
-  const db = await getMongoDb();
-  if (!db) {
+  const supabase = getSupabase();
+  if (!supabase) {
     console.warn("[Database] Cannot upsert user: database not available");
     return;
   }
@@ -25,54 +18,35 @@ export async function upsertUser(user: InsertUser): Promise<void> {
     const updateSet: Record<string, unknown> = {};
 
     const textFields = ["name", "email", "loginMethod"] as const;
-    type TextField = (typeof textFields)[number];
-
-    const assignNullable = (field: TextField) => {
+    for (const field of textFields) {
       const value = user[field];
-      if (value === undefined) return;
-      updateSet[field] = value ?? null;
-    };
-
-    textFields.forEach(assignNullable);
-
-    if (user.lastSignedIn !== undefined) {
-      updateSet.lastSignedIn = user.lastSignedIn;
+      if (value !== undefined) updateSet[field] = value ?? null;
     }
+
     if (user.role !== undefined) {
       updateSet.role = user.role;
     } else if (user.openId === ENV.ownerOpenId) {
       updateSet.role = "admin";
     }
-
-    if (!updateSet.lastSignedIn) {
-      updateSet.lastSignedIn = new Date();
-    }
+    updateSet.lastSignedIn = user.lastSignedIn ?? new Date();
     updateSet.updatedAt = new Date();
 
-    const collection = db.collection(COLLECTIONS.users);
-    const existing = await collection.findOne({ openId: user.openId });
-
+    const { data: existing } = await supabase.from("users").select("id").eq("open_id", user.openId).maybeSingle().throwOnError();
     if (existing) {
-      await collection.updateOne({ openId: user.openId }, { $set: updateSet });
+      await supabase.from("users").update(toRow(updateSet)).eq("open_id", user.openId).throwOnError();
       return;
     }
 
-    const id = await nextId(db, COLLECTIONS.users);
-    const now = new Date();
-    await collection.insertOne({
-      id,
-      householdId: user.householdId ?? id,
-      openId: user.openId,
-      name: null,
-      email: null,
-      loginMethod: null,
-      role: "user",
-      pinHash: null,
-      createdAt: now,
-      updatedAt: now,
-      lastSignedIn: now,
-      ...updateSet,
-    });
+    const { data: created } = await supabase
+      .from("users")
+      .insert(toRow({ householdId: user.householdId ?? 0, openId: user.openId, role: "user", ...updateSet }))
+      .select("id")
+      .single()
+      .throwOnError();
+    // A new user's household defaults to itself.
+    if (user.householdId === undefined) {
+      await supabase.from("users").update({ household_id: created.id }).eq("id", created.id).throwOnError();
+    }
   } catch (error) {
     console.error("[Database] Failed to upsert user:", error);
     throw error;
@@ -80,285 +54,130 @@ export async function upsertUser(user: InsertUser): Promise<void> {
 }
 
 export async function getUserByOpenId(openId: string): Promise<User | undefined> {
-  const db = await getMongoDb();
-  if (!db) {
+  const supabase = getSupabase();
+  if (!supabase) {
     console.warn("[Database] Cannot get user: database not available");
     return undefined;
   }
 
-  const result = await db.collection<User>(COLLECTIONS.users).findOne({ openId });
-  return withoutMongoId(result) as User | undefined;
-}
-
-async function requireDb() {
-  const db = await getMongoDb();
-  if (!db) throw new Error("Database is unavailable");
-  return db;
+  const { data } = await supabase.from("users").select("*").eq("open_id", openId).maybeSingle().throwOnError();
+  return data ? fromRow<User>(data) : undefined;
 }
 
 export async function getUserById(id: number): Promise<User | undefined> {
-  const db = await requireDb();
-  const result = await db.collection<User>(COLLECTIONS.users).findOne({ id });
-  return withoutMongoId(result) as User | undefined;
+  const { data } = await requireSupabase().from("users").select("*").eq("id", id).maybeSingle().throwOnError();
+  return data ? fromRow<User>(data) : undefined;
 }
 
 export async function listProfiles(): Promise<Pick<User, "id" | "name" | "role" | "householdId">[]> {
-  const db = await requireDb();
-  const results = await db.collection<User>(COLLECTIONS.users).find({ pinHash: { $ne: null } }).sort({ id: 1 }).toArray();
-  return results.map(user => ({ id: user.id, name: user.name, role: user.role, householdId: user.householdId }));
+  const { data } = await requireSupabase().from("users").select("id, name, role, household_id").not("pin_hash", "is", null).order("id").throwOnError();
+  return fromRows(data);
 }
 
-// The first household allocated is 1, which is also the id (and therefore data
-// scope) of the legacy single dev user, so records created before profiles
-// existed stay visible to the family.
 export async function allocateHouseholdId(): Promise<number> {
-  const db = await requireDb();
-  return nextId(db, "households");
+  const { data } = await requireSupabase().rpc("allocate_household_id").throwOnError();
+  return Number(data);
 }
 
 export async function createProfileUser(input: { householdId: number; name: string; role: UserRole; pinHash: string }): Promise<User> {
-  const db = await requireDb();
-  const id = await nextId(db, COLLECTIONS.users);
-  const now = new Date();
-  const user: User = {
-    id,
-    householdId: input.householdId,
-    openId: `profile-${randomUUID()}`,
-    name: input.name,
-    email: null,
-    loginMethod: "pin",
-    role: input.role,
-    pinHash: input.pinHash,
-    pinFailCount: 0,
-    pinLockedUntil: null,
-    createdAt: now,
-    updatedAt: now,
-    lastSignedIn: now,
-  };
-  await db.collection(COLLECTIONS.users).insertOne({ ...user });
-  return user;
+  const { data } = await requireSupabase()
+    .from("users")
+    .insert(toRow({ householdId: input.householdId, openId: `profile-${randomUUID()}`, name: input.name, loginMethod: "pin", role: input.role, pinHash: input.pinHash }))
+    .select("*")
+    .single()
+    .throwOnError();
+  return fromRow<User>(data);
 }
 
 export async function setUserPin(userId: number, pinHash: string): Promise<void> {
-  const db = await requireDb();
-  await db.collection(COLLECTIONS.users).updateOne({ id: userId }, { $set: { pinHash, updatedAt: new Date() } });
+  await requireSupabase().from("users").update({ pin_hash: pinHash, updated_at: new Date() }).eq("id", userId).throwOnError();
 }
 
 const PIN_MAX_ATTEMPTS = 5;
-const PIN_LOCK_MS = 60_000;
+const PIN_LOCK_SECONDS = 60;
 
-/** ms remaining on an active lockout, or 0 if the profile can attempt a PIN now. Stored in Mongo, not memory, so it survives serverless cold starts. */
+/** ms remaining on an active lockout, or 0 if the profile can attempt a PIN now. Stored in the database, not memory, so it survives serverless cold starts. */
 export async function getPinLockRemainingMs(userId: number): Promise<number> {
-  const db = await requireDb();
-  const user = await db.collection<User>(COLLECTIONS.users).findOne({ id: userId }, { projection: { pinLockedUntil: 1 } });
-  const lockedUntil = user?.pinLockedUntil;
+  const { data } = await requireSupabase().from("users").select("pin_locked_until").eq("id", userId).maybeSingle().throwOnError();
+  const lockedUntil = data?.pin_locked_until;
   if (!lockedUntil) return 0;
   return Math.max(0, new Date(lockedUntil).getTime() - Date.now());
 }
 
 /** Records a failed PIN attempt; returns attempts remaining before lockout (0 = now locked). */
 export async function recordPinFailure(userId: number): Promise<number> {
-  const db = await requireDb();
-  const collection = db.collection<User>(COLLECTIONS.users);
-  const result = await collection.findOneAndUpdate({ id: userId }, { $inc: { pinFailCount: 1 } }, { returnDocument: "after" });
-  const count = result?.pinFailCount ?? 1;
-  if (count >= PIN_MAX_ATTEMPTS) {
-    await collection.updateOne({ id: userId }, { $set: { pinFailCount: 0, pinLockedUntil: new Date(Date.now() + PIN_LOCK_MS) } });
-    return 0;
-  }
-  return PIN_MAX_ATTEMPTS - count;
+  const { data } = await requireSupabase()
+    .rpc("record_pin_failure", { p_user_id: userId, p_max_attempts: PIN_MAX_ATTEMPTS, p_lock_seconds: PIN_LOCK_SECONDS })
+    .throwOnError();
+  return Number(data);
 }
 
 export async function clearPinFailures(userId: number): Promise<void> {
-  const db = await requireDb();
-  await db.collection(COLLECTIONS.users).updateOne({ id: userId }, { $set: { pinFailCount: 0, pinLockedUntil: null } });
+  await requireSupabase().from("users").update({ pin_fail_count: 0, pin_locked_until: null }).eq("id", userId).throwOnError();
 }
 
 export async function touchLastSignedIn(userId: number): Promise<void> {
-  const db = await requireDb();
-  await db.collection(COLLECTIONS.users).updateOne({ id: userId }, { $set: { lastSignedIn: new Date() } });
+  await requireSupabase().from("users").update({ last_signed_in: new Date() }).eq("id", userId).throwOnError();
 }
 
-// Older documents predate cost lines / attachments; fill the new fields on
-// read so every consumer sees one shape. A legacy lump-sum `expenseCents`
-// becomes a single "Other costs" line and is persisted itemised on next save.
-function normalizeSubconJob(record: WithId<SubconJob>): SubconJob {
-  const job = withoutMongoId(record) as SubconJob;
-  const legacyCosts = job.expenseCents > 0 ? [{ label: "Other costs", amountCents: job.expenseCents, attachmentIds: [] }] : [];
-  return {
-    ...job,
-    workerPayments: job.workerPayments ?? [],
-    costLines: job.costLines ?? legacyCosts,
-    invoiceAttachmentIds: job.invoiceAttachmentIds ?? [],
-  };
+type Changes<T> = Partial<Omit<T, "id" | "userId" | "createdAt" | "updatedAt">>;
+
+/* Household-scoped record tables all share the same shape of queries. */
+
+async function listRecords<T>(table: string, userId: number, orderBy: string, ascending: boolean): Promise<T[]> {
+  const { data } = await requireSupabase().from(table).select("*").eq("user_id", userId).order(orderBy, { ascending }).throwOnError();
+  return fromRows<T>(data);
 }
 
-export async function listSubconJobs(userId: number): Promise<SubconJob[]> {
-  const db = await requireDb();
-  const results = await db
-    .collection<SubconJob>(COLLECTIONS.subconJobs)
-    .find({ userId })
-    .sort({ workDate: -1 })
-    .toArray();
-  return results.map(normalizeSubconJob);
+async function getRecord<T>(table: string, userId: number, id: number): Promise<T | undefined> {
+  const { data } = await requireSupabase().from(table).select("*").eq("user_id", userId).eq("id", id).maybeSingle().throwOnError();
+  return data ? fromRow<T>(data) : undefined;
 }
 
-export async function getSubconJobById(userId: number, id: number): Promise<SubconJob | undefined> {
-  const db = await requireDb();
-  const result = await db.collection<SubconJob>(COLLECTIONS.subconJobs).findOne({ userId, id });
-  return result ? normalizeSubconJob(result) : undefined;
+async function createRecord(table: string, record: Record<string, unknown>): Promise<number> {
+  const { data } = await requireSupabase().from(table).insert(toRow(record)).select("id").single().throwOnError();
+  return data.id;
 }
 
-export async function createSubconJob(record: Omit<SubconJob, "id" | "createdAt" | "updatedAt">): Promise<number> {
-  const db = await requireDb();
-  const id = await nextId(db, COLLECTIONS.subconJobs);
-  const now = new Date();
-  await db.collection(COLLECTIONS.subconJobs).insertOne({ id, ...record, createdAt: now, updatedAt: now });
-  return id;
+async function updateRecord(table: string, userId: number, id: number, changes: Record<string, unknown>): Promise<void> {
+  await requireSupabase().from(table).update(toRow({ ...changes, updatedAt: new Date() })).eq("id", id).eq("user_id", userId).throwOnError();
 }
 
-export async function updateSubconJob(userId: number, id: number, changes: Partial<Omit<SubconJob, "id" | "userId" | "createdAt" | "updatedAt">>): Promise<void> {
-  const db = await requireDb();
-  await db.collection(COLLECTIONS.subconJobs).updateOne({ id, userId }, { $set: { ...changes, updatedAt: new Date() } });
+async function deleteRecord(table: string, userId: number, id: number): Promise<void> {
+  await requireSupabase().from(table).delete().eq("id", id).eq("user_id", userId).throwOnError();
 }
 
-export async function deleteSubconJob(userId: number, id: number): Promise<void> {
-  const db = await requireDb();
-  await db.collection(COLLECTIONS.subconJobs).deleteOne({ id, userId });
-}
+export const listSubconJobs = (userId: number) => listRecords<SubconJob>("subcon_jobs", userId, "work_date", false);
+export const getSubconJobById = (userId: number, id: number) => getRecord<SubconJob>("subcon_jobs", userId, id);
+export const createSubconJob = (record: Omit<SubconJob, "id" | "createdAt" | "updatedAt">) => createRecord("subcon_jobs", record);
+export const updateSubconJob = (userId: number, id: number, changes: Changes<SubconJob>) => updateRecord("subcon_jobs", userId, id, changes);
+export const deleteSubconJob = (userId: number, id: number) => deleteRecord("subcon_jobs", userId, id);
 
-export async function listChiliSales(userId: number): Promise<ChiliSale[]> {
-  const db = await requireDb();
-  const results = await db
-    .collection<ChiliSale>(COLLECTIONS.chiliSales)
-    .find({ userId })
-    .sort({ saleDate: -1 })
-    .toArray();
-  return results.map(normalizeChiliSale);
-}
+export const listChiliSales = (userId: number) => listRecords<ChiliSale>("chili_sales", userId, "sale_date", false);
+export const getChiliSaleById = (userId: number, id: number) => getRecord<ChiliSale>("chili_sales", userId, id);
+export const createChiliSale = (record: Omit<ChiliSale, "id" | "createdAt" | "updatedAt">) => createRecord("chili_sales", record);
+export const updateChiliSale = (userId: number, id: number, changes: Changes<ChiliSale>) => updateRecord("chili_sales", userId, id, changes);
+export const deleteChiliSale = (userId: number, id: number) => deleteRecord("chili_sales", userId, id);
 
-function normalizeChiliSale(record: WithId<ChiliSale>): ChiliSale {
-  const sale = withoutMongoId(record) as ChiliSale;
-  return { ...sale, customerId: sale.customerId ?? null, attachmentIds: sale.attachmentIds ?? [] };
-}
+export const listChiliExpenses = (userId: number) => listRecords<ChiliExpense>("chili_expenses", userId, "expense_date", false);
+export const getChiliExpenseById = (userId: number, id: number) => getRecord<ChiliExpense>("chili_expenses", userId, id);
+export const createChiliExpense = (record: Omit<ChiliExpense, "id" | "createdAt" | "updatedAt">) => createRecord("chili_expenses", record);
+export const updateChiliExpense = (userId: number, id: number, changes: Changes<ChiliExpense>) => updateRecord("chili_expenses", userId, id, changes);
+export const deleteChiliExpense = (userId: number, id: number) => deleteRecord("chili_expenses", userId, id);
 
-export async function getChiliSaleById(userId: number, id: number): Promise<ChiliSale | undefined> {
-  const db = await requireDb();
-  const result = await db.collection<ChiliSale>(COLLECTIONS.chiliSales).findOne({ userId, id });
-  return result ? normalizeChiliSale(result) : undefined;
-}
-
-export async function createChiliSale(record: Omit<ChiliSale, "id" | "createdAt" | "updatedAt">): Promise<number> {
-  const db = await requireDb();
-  const id = await nextId(db, COLLECTIONS.chiliSales);
-  const now = new Date();
-  await db.collection(COLLECTIONS.chiliSales).insertOne({ id, ...record, createdAt: now, updatedAt: now });
-  return id;
-}
-
-export async function updateChiliSale(userId: number, id: number, changes: Partial<Omit<ChiliSale, "id" | "userId" | "createdAt" | "updatedAt">>): Promise<void> {
-  const db = await requireDb();
-  await db.collection(COLLECTIONS.chiliSales).updateOne({ id, userId }, { $set: { ...changes, updatedAt: new Date() } });
-}
-
-export async function deleteChiliSale(userId: number, id: number): Promise<void> {
-  const db = await requireDb();
-  await db.collection(COLLECTIONS.chiliSales).deleteOne({ id, userId });
-}
-
-export async function listChiliExpenses(userId: number): Promise<ChiliExpense[]> {
-  const db = await requireDb();
-  const results = await db
-    .collection<ChiliExpense>(COLLECTIONS.chiliExpenses)
-    .find({ userId })
-    .sort({ expenseDate: -1 })
-    .toArray();
-  return results.map(normalizeChiliExpense);
-}
-
-function normalizeChiliExpense(record: WithId<ChiliExpense>): ChiliExpense {
-  const expense = withoutMongoId(record) as ChiliExpense;
-  return { ...expense, attachmentIds: expense.attachmentIds ?? [] };
-}
-
-export async function getChiliExpenseById(userId: number, id: number): Promise<ChiliExpense | undefined> {
-  const db = await requireDb();
-  const result = await db.collection<ChiliExpense>(COLLECTIONS.chiliExpenses).findOne({ userId, id });
-  return result ? normalizeChiliExpense(result) : undefined;
-}
-
-export async function createChiliExpense(record: Omit<ChiliExpense, "id" | "createdAt" | "updatedAt">): Promise<number> {
-  const db = await requireDb();
-  const id = await nextId(db, COLLECTIONS.chiliExpenses);
-  const now = new Date();
-  await db.collection(COLLECTIONS.chiliExpenses).insertOne({ id, ...record, createdAt: now, updatedAt: now });
-  return id;
-}
-
-export async function updateChiliExpense(userId: number, id: number, changes: Partial<Omit<ChiliExpense, "id" | "userId" | "createdAt" | "updatedAt">>): Promise<void> {
-  const db = await requireDb();
-  await db.collection(COLLECTIONS.chiliExpenses).updateOne({ id, userId }, { $set: { ...changes, updatedAt: new Date() } });
-}
-
-export async function deleteChiliExpense(userId: number, id: number): Promise<void> {
-  const db = await requireDb();
-  await db.collection(COLLECTIONS.chiliExpenses).deleteOne({ id, userId });
-}
-
-export async function listStaff(userId: number): Promise<Staff[]> {
-  const db = await requireDb();
-  const results = await db.collection<Staff>(COLLECTIONS.staff).find({ userId }).sort({ name: 1 }).toArray();
-  return results.map(record => withoutMongoId(record) as Staff);
-}
+export const listStaff = (userId: number) => listRecords<Staff>("staff", userId, "name", true);
+export const createStaff = async (record: Omit<Staff, "id" | "createdAt" | "updatedAt">) => { await createRecord("staff", record); };
+export const updateStaff = (userId: number, id: number, changes: Changes<Staff>) => updateRecord("staff", userId, id, changes);
+export const deleteStaff = (userId: number, id: number) => deleteRecord("staff", userId, id);
 
 export async function getStaffByIds(userId: number, ids: number[]): Promise<Staff[]> {
-  const db = await requireDb();
-  const results = await db.collection<Staff>(COLLECTIONS.staff).find({ userId, id: { $in: ids } }).toArray();
-  return results.map(record => withoutMongoId(record) as Staff);
+  if (ids.length === 0) return [];
+  const { data } = await requireSupabase().from("staff").select("*").eq("user_id", userId).in("id", ids).throwOnError();
+  return fromRows<Staff>(data);
 }
 
-export async function createStaff(record: Omit<Staff, "id" | "createdAt" | "updatedAt">): Promise<void> {
-  const db = await requireDb();
-  const id = await nextId(db, COLLECTIONS.staff);
-  const now = new Date();
-  await db.collection(COLLECTIONS.staff).insertOne({ id, ...record, createdAt: now, updatedAt: now });
-}
-
-export async function updateStaff(userId: number, id: number, changes: Partial<Omit<Staff, "id" | "userId" | "createdAt" | "updatedAt">>): Promise<void> {
-  const db = await requireDb();
-  await db.collection(COLLECTIONS.staff).updateOne({ id, userId }, { $set: { ...changes, updatedAt: new Date() } });
-}
-
-export async function deleteStaff(userId: number, id: number): Promise<void> {
-  const db = await requireDb();
-  await db.collection(COLLECTIONS.staff).deleteOne({ id, userId });
-}
-
-export async function listCustomers(userId: number): Promise<Customer[]> {
-  const db = await requireDb();
-  const results = await db.collection<Customer>(COLLECTIONS.customers).find({ userId }).sort({ name: 1 }).toArray();
-  return results.map(record => withoutMongoId(record) as Customer);
-}
-
-export async function getCustomerById(userId: number, id: number): Promise<Customer | undefined> {
-  const db = await requireDb();
-  const result = await db.collection<Customer>(COLLECTIONS.customers).findOne({ userId, id });
-  return withoutMongoId(result) as Customer | undefined;
-}
-
-export async function createCustomer(record: Omit<Customer, "id" | "createdAt" | "updatedAt">): Promise<void> {
-  const db = await requireDb();
-  const id = await nextId(db, COLLECTIONS.customers);
-  const now = new Date();
-  await db.collection(COLLECTIONS.customers).insertOne({ id, ...record, createdAt: now, updatedAt: now });
-}
-
-export async function updateCustomer(userId: number, id: number, changes: Partial<Omit<Customer, "id" | "userId" | "createdAt" | "updatedAt">>): Promise<void> {
-  const db = await requireDb();
-  await db.collection(COLLECTIONS.customers).updateOne({ id, userId }, { $set: { ...changes, updatedAt: new Date() } });
-}
-
-export async function deleteCustomer(userId: number, id: number): Promise<void> {
-  const db = await requireDb();
-  await db.collection(COLLECTIONS.customers).deleteOne({ id, userId });
-}
+export const listCustomers = (userId: number) => listRecords<Customer>("chili_customers", userId, "name", true);
+export const getCustomerById = (userId: number, id: number) => getRecord<Customer>("chili_customers", userId, id);
+export const createCustomer = async (record: Omit<Customer, "id" | "createdAt" | "updatedAt">) => { await createRecord("chili_customers", record); };
+export const updateCustomer = (userId: number, id: number, changes: Changes<Customer>) => updateRecord("chili_customers", userId, id, changes);
+export const deleteCustomer = (userId: number, id: number) => deleteRecord("chili_customers", userId, id);

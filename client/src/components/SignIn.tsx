@@ -21,7 +21,9 @@ function readLastProfile() {
 
 export function SignIn() {
   const utils = trpc.useUtils();
-  const profilesQuery = trpc.auth.profiles.useQuery();
+  // One retry, not React Query's default three: each failed attempt can take
+  // several seconds server-side, and the error state below offers a retry.
+  const profilesQuery = trpc.auth.profiles.useQuery(undefined, { retry: 1 });
   const profiles: Profile[] = profilesQuery.data ?? [];
   const [selectedId, setSelectedId] = useState(readLastProfile);
   const [pin, setPin] = useState("");
@@ -124,6 +126,14 @@ export function SignIn() {
                 ))}
               </SelectContent>
             </Select>
+            {profilesQuery.isError ? (
+              <p className="flex items-center justify-between gap-3 text-xs font-medium text-[#b34d2e]" role="alert">
+                <span>Couldn't load profiles — the server can't reach the database.</span>
+                <button type="button" className="shrink-0 font-semibold underline underline-offset-2 disabled:opacity-50" disabled={profilesQuery.isFetching} onClick={() => profilesQuery.refetch()}>
+                  {profilesQuery.isFetching ? "Retrying…" : "Retry"}
+                </button>
+              </p>
+            ) : null}
           </div>
 
           <div className="mt-6">

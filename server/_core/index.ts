@@ -46,7 +46,7 @@ async function startServer() {
     // Only meaningful for a long-running process; on Vercel this file isn't
     // used at all — see api/[...path].ts and the CRON_SECRET-protected
     // /api/cron/sweep-orphans route instead.
-    if (process.env.DATABASE_URL) startOrphanSweep();
+    if (process.env.SUPABASE_URL) startOrphanSweep();
   });
 }
 

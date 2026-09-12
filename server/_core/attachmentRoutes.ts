@@ -43,12 +43,12 @@ async function loadReadable(req: Request, res: Response): Promise<{ user: User; 
   return { user, attachment };
 }
 
-function sendFile(res: Response, stream: NodeJS.ReadableStream, headers: Record<string, string>) {
+function sendFile(res: Response, data: Buffer | null, headers: Record<string, string>) {
+  if (!data) { res.status(404).json({ error: "File data missing" }); return; }
   for (const [key, value] of Object.entries(headers)) res.setHeader(key, value);
   res.setHeader("Cache-Control", "private, max-age=31536000, immutable");
   res.setHeader("X-Content-Type-Options", "nosniff");
-  stream.on("error", () => { if (!res.headersSent) res.status(404).json({ error: "File data missing" }); else res.end(); });
-  stream.pipe(res);
+  res.end(data);
 }
 
 export function registerAttachmentRoutes(app: Express) {
@@ -97,10 +97,8 @@ export function registerAttachmentRoutes(app: Express) {
     if (!loaded) return;
     const { attachment } = loaded;
     const disposition = req.query.download === "1" ? "attachment" : "inline";
-    const stream = await attachments.openDownload(attachment.fileId);
-    sendFile(res, stream, {
+    sendFile(res, await attachments.readFile(attachment.fileId), {
       "Content-Type": attachment.mimeType,
-      "Content-Length": String(attachment.sizeBytes),
       "Content-Disposition": `${disposition}; filename*=UTF-8''${encodeURIComponent(attachment.fileName)}`,
     });
   });
@@ -110,7 +108,6 @@ export function registerAttachmentRoutes(app: Express) {
     if (!loaded) return;
     const { attachment } = loaded;
     if (!attachment.thumbFileId) { res.status(404).json({ error: "No thumbnail" }); return; }
-    const stream = await attachments.openDownload(attachment.thumbFileId);
-    sendFile(res, stream, { "Content-Type": "image/jpeg" });
+    sendFile(res, await attachments.readFile(attachment.thumbFileId), { "Content-Type": "image/jpeg" });
   });
 }

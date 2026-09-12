@@ -82,9 +82,9 @@ describe("auth profiles + PIN", () => {
     expect(dbMock.touchLastSignedIn).toHaveBeenCalledWith(7);
   });
 
-  it("rejects a wrong PIN and locks the profile after five failures (state kept in Mongo, not memory)", async () => {
+  it("rejects a wrong PIN and locks the profile after five failures (state kept in the database, not memory)", async () => {
     dbMock.getUserById.mockResolvedValue(profileUser(8, await hashPin("1234")));
-    // Simulate the stateful Mongo counter/lock that db.recordPinFailure/getPinLockRemainingMs
+    // Simulate the stateful database counter/lock that db.recordPinFailure/getPinLockRemainingMs
     // would maintain — this is exactly what makes lockout survive a serverless cold start.
     let failCount = 0;
     let lockedUntil = 0;
