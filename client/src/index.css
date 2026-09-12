@@ -230,6 +230,11 @@
   .ledger-table tbody tr { transition: background-color 160ms ease; }
   .ledger-table tbody tr:hover { background: #fbfaf5; }
   .ledger-table tbody td { font-variant-numeric: tabular-nums; }
+  /* Pins a table's Actions column to the right edge, so Edit/Delete stay on screen when a
+     wide table scrolls sideways inside a narrower card (macOS hides that scrollbar). */
+  .ledger-table .actions-col { position: sticky; right: 0; z-index: 1; background: #fdfcf8; box-shadow: inset 1px 0 0 #ece9e0; }
+  .ledger-table thead th.actions-col { z-index: 2; background: linear-gradient(180deg, #f8f7f1, #f3f1ea); box-shadow: inset 0 -1px 0 #e6e2d8, inset 1px 0 0 #e6e2d8; }
+  .ledger-table tbody tr:hover .actions-col { background: #fbfaf5; }
   .ledger-table tbody tr:last-child td:first-child { border-bottom-left-radius: 1.35rem; }
   .ledger-table tbody tr:last-child td:last-child { border-bottom-right-radius: 1.35rem; }
 
