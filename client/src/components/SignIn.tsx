@@ -128,7 +128,7 @@ export function SignIn() {
             </Select>
             {profilesQuery.isError ? (
               <p className="flex items-center justify-between gap-3 text-xs font-medium text-[#b34d2e]" role="alert">
-                <span>Couldn't load profiles — the server can't reach the database.</span>
+                <span>Couldn't load profiles{profilesQuery.error?.message ? `: ${profilesQuery.error.message}` : "."}</span>
                 <button type="button" className="shrink-0 font-semibold underline underline-offset-2 disabled:opacity-50" disabled={profilesQuery.isFetching} onClick={() => profilesQuery.refetch()}>
                   {profilesQuery.isFetching ? "Retrying…" : "Retry"}
                 </button>

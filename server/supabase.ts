@@ -4,6 +4,9 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
  * Server-side Supabase client. It uses the project's secret key, which
  * bypasses row-level security, so it must never reach the browser.
  * Tables, RPC functions and the storage bucket come from supabase/schema.sql.
+ *
+ * supabase-js eagerly looks up a global WebSocket for Realtime, which only
+ * exists from Node 22 — hence engines.node ">=22" in package.json.
  */
 let _client: SupabaseClient | null = null;
 
@@ -25,7 +28,7 @@ export function getSupabase(): SupabaseClient | null {
 
 export function requireSupabase(): SupabaseClient {
   const supabase = getSupabase();
-  if (!supabase) throw new Error("Database is unavailable");
+  if (!supabase) throw new Error("Database is not configured: set SUPABASE_URL and SUPABASE_SECRET_KEY on the server");
   return supabase;
 }
 
