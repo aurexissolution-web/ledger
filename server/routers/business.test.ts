@@ -14,6 +14,8 @@ const dbMock = vi.hoisted(() => ({
   createChiliSale: vi.fn(),
   updateChiliSale: vi.fn(),
   deleteChiliSale: vi.fn(),
+  getChiliSalesByIds: vi.fn(),
+  markChiliSalesPaid: vi.fn(),
   listChiliExpenses: vi.fn(),
   getChiliExpenseById: vi.fn(),
   createChiliExpense: vi.fn(),
@@ -118,6 +120,7 @@ describe("business procedures", () => {
     dbMock.createChiliExpense.mockResolvedValue(89);
     dbMock.updateChiliSale.mockResolvedValue(undefined);
     dbMock.deleteChiliSale.mockResolvedValue(undefined);
+    dbMock.markChiliSalesPaid.mockResolvedValue(undefined);
     dbMock.deleteChiliExpense.mockResolvedValue(undefined);
     attachmentsMock.validateNewAttachments.mockResolvedValue(undefined);
     attachmentsMock.syncRecordAttachments.mockResolvedValue(undefined);
@@ -241,6 +244,53 @@ describe("business procedures", () => {
     await expect(caller.chili.createSale({ ...chiliSaleInput, grades: [] })).rejects.toThrow(/at least one grade/);
     await expect(caller.chili.createSale({ ...chiliSaleInput, grades: [{ grade: "A", quantityKg: 1, pricePerKgCents: 100 }, { grade: "A", quantityKg: 2, pricePerKgCents: 100 }] })).rejects.toThrow(/only appear once/);
     expect(dbMock.createChiliSale).not.toHaveBeenCalled();
+  });
+
+  it("records whether a Chili sale is paid, and rejects a payment dated before the sale", async () => {
+    const caller = businessRouter.createCaller(createContext(81));
+    const day = 86_400_000;
+
+    await caller.chili.createSale(chiliSaleInput);
+    await caller.chili.createSale({ ...chiliSaleInput, paidAt: chiliSaleInput.saleDate + day });
+    await caller.chili.updateSale({ id: 11, ...chiliSaleInput, paidAt: null });
+
+    expect(dbMock.createChiliSale.mock.calls.map(([record]) => record.paidAt)).toEqual([null, chiliSaleInput.saleDate + day]);
+    expect(dbMock.updateChiliSale).toHaveBeenCalledWith(81, 11, expect.objectContaining({ paidAt: null }));
+    await expect(caller.chili.createSale({ ...chiliSaleInput, paidAt: chiliSaleInput.saleDate - day })).rejects.toThrow(/before the sale date/);
+    await expect(caller.chili.updateSale({ id: 11, ...chiliSaleInput, paidAt: chiliSaleInput.saleDate - day })).rejects.toThrow(/before the sale date/);
+    expect(dbMock.createChiliSale).toHaveBeenCalledTimes(2);
+  });
+
+  it("marks several of the household's sales paid at once", async () => {
+    const saleDate = 1_700_000_000_000;
+    dbMock.getChiliSalesByIds.mockResolvedValue([{ id: 5, saleDate }, { id: 6, saleDate: saleDate + 1 }]);
+    const caller = businessRouter.createCaller(createContext(81));
+
+    await expect(caller.chili.markPaid({ ids: [5, 6, 5], paidAt: saleDate + 5 })).resolves.toEqual({ success: true, count: 2 });
+    expect(dbMock.getChiliSalesByIds).toHaveBeenCalledWith(81, [5, 6]);
+    expect(dbMock.markChiliSalesPaid).toHaveBeenCalledWith(81, [5, 6], saleDate + 5);
+  });
+
+  it("refuses to mark unknown sales paid or date a payment before a sale", async () => {
+    const saleDate = 1_700_000_000_000;
+    const caller = businessRouter.createCaller(createContext(81));
+
+    dbMock.getChiliSalesByIds.mockResolvedValue([{ id: 5, saleDate }]);
+    await expect(caller.chili.markPaid({ ids: [5, 99], paidAt: saleDate })).rejects.toThrow(/not found/);
+    await expect(caller.chili.markPaid({ ids: [5], paidAt: saleDate - 1 })).rejects.toThrow(/before the sale date/);
+    await expect(caller.chili.markPaid({ ids: [], paidAt: saleDate })).rejects.toThrow();
+    expect(dbMock.markChiliSalesPaid).not.toHaveBeenCalled();
+  });
+
+  it("reports how much is still owed for chili in the overview", async () => {
+    dbMock.listChiliSales.mockResolvedValue([
+      { id: 1, saleDate: 1, customerId: 3, recipientName: "Kedai", totalCents: 36_000, paidAt: null },
+      { id: 2, saleDate: 2, customerId: 3, recipientName: "Kedai", totalCents: 20_000, paidAt: null },
+      { id: 3, saleDate: 3, customerId: 4, recipientName: "Pasar", totalCents: 9_000, paidAt: 3 },
+    ]);
+    const overview = await businessRouter.createCaller(createContext(81)).overview();
+
+    expect(overview.chili).toMatchObject({ incomeCents: 65_000, owedCents: 56_000, owedCount: 2 });
   });
 
   it("rejects Chili sales for a customer the household does not own", async () => {

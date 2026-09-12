@@ -107,6 +107,10 @@ export type SubconJob = {
   updatedAt: Date;
 };
 
+export const PAYMENT_TERMS = ["on_delivery", "next_delivery"] as const;
+/** How a customer usually pays: on the day, or for this delivery when the next one arrives. */
+export type PaymentTerms = (typeof PAYMENT_TERMS)[number];
+
 /** Someone who buys/takes chili from the family. */
 export type Customer = {
   id: number;
@@ -114,6 +118,8 @@ export type Customer = {
   name: string;
   phone: string | null;
   location: string | null;
+  /** Default for new sales: paid on delivery, or unpaid until the next delivery. */
+  paymentTerms: PaymentTerms;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -149,6 +155,8 @@ export type ChiliSale = {
   totalCents: number;
   deliveryNotes: string | null;
   attachmentIds: number[];
+  /** When the customer paid (epoch ms, like saleDate); null = still owed. */
+  paidAt: number | null;
   createdAt: Date;
   updatedAt: Date;
 };

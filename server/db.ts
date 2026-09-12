@@ -159,6 +159,18 @@ export const createChiliSale = (record: Omit<ChiliSale, "id" | "createdAt" | "up
 export const updateChiliSale = (userId: number, id: number, changes: Changes<ChiliSale>) => updateRecord("chili_sales", userId, id, changes);
 export const deleteChiliSale = (userId: number, id: number) => deleteRecord("chili_sales", userId, id);
 
+export async function getChiliSalesByIds(userId: number, ids: number[]): Promise<ChiliSale[]> {
+  if (ids.length === 0) return [];
+  const { data } = await requireSupabase().from("chili_sales").select("*").eq("user_id", userId).in("id", ids).throwOnError();
+  return fromRows<ChiliSale>(data);
+}
+
+/** Settles several sales at once, e.g. everything a customer paid for on their next delivery. */
+export async function markChiliSalesPaid(userId: number, ids: number[], paidAt: number): Promise<void> {
+  if (ids.length === 0) return;
+  await requireSupabase().from("chili_sales").update({ paid_at: paidAt, updated_at: new Date() }).eq("user_id", userId).in("id", ids).throwOnError();
+}
+
 export const listChiliExpenses = (userId: number) => listRecords<ChiliExpense>("chili_expenses", userId, "expense_date", false);
 export const getChiliExpenseById = (userId: number, id: number) => getRecord<ChiliExpense>("chili_expenses", userId, id);
 export const createChiliExpense = (record: Omit<ChiliExpense, "id" | "createdAt" | "updatedAt">) => createRecord("chili_expenses", record);

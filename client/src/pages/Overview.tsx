@@ -94,7 +94,7 @@ export default function Overview() {
             </div>
             <div className={`grid gap-4 p-6 ${data.canSeeSubcon ? "sm:grid-cols-2" : ""}`}>
               {data.canSeeSubcon ? <BusinessPulse name="Wiring Subcon" description="Jobs, worker pay and operating costs" icon={<BriefcaseBusiness className="h-5 w-5" />} income={data.subcon.incomeCents} outgoings={data.subcon.outgoingsCents} profit={data.subcon.profitCents} accent="subcon" onOpen={() => setLocation("/subcon")} /> : null}
-              <BusinessPulse name="Chili Agriculture" description="Sales, delivery value and daily expenses" icon={<Leaf className="h-5 w-5" />} income={data.chili.incomeCents} outgoings={data.chili.outgoingsCents} profit={data.chili.profitCents} accent="chili" onOpen={() => setLocation("/chili")} />
+              <BusinessPulse name="Chili Agriculture" description="Sales, delivery value and daily expenses" icon={<Leaf className="h-5 w-5" />} income={data.chili.incomeCents} outgoings={data.chili.outgoingsCents} profit={data.chili.profitCents} owed={data.chili.owedCents} owedCount={data.chili.owedCount} accent="chili" onOpen={() => setLocation("/chili")} />
             </div>
           </div>
 
@@ -152,7 +152,7 @@ function ActivityRow({ title, kind, date, amountCents }: { title: string; kind: 
   );
 }
 
-function BusinessPulse({ name, description, icon, income, outgoings, profit, accent, onOpen }: { name: string; description: string; icon: React.ReactNode; income: number; outgoings: number; profit: number; accent: "subcon" | "chili"; onOpen: () => void }) {
+function BusinessPulse({ name, description, icon, income, outgoings, profit, owed = 0, owedCount = 0, accent, onOpen }: { name: string; description: string; icon: React.ReactNode; income: number; outgoings: number; profit: number; owed?: number; owedCount?: number; accent: "subcon" | "chili"; onOpen: () => void }) {
   const tile = accent === "subcon" ? "icon-tile-ink" : "icon-tile-chili";
   return (
     <button type="button" onClick={onOpen} className="group lift relative rounded-2xl border border-[#e8e4da] bg-[linear-gradient(180deg,#fdfcf8,#f8f7f1)] p-5 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.9)] outline-none focus-visible:ring-[3px] focus-visible:ring-[#5f7d68]/30">
@@ -169,6 +169,12 @@ function BusinessPulse({ name, description, icon, income, outgoings, profit, acc
         <SmallTotal label="Out" value={formatMoney(outgoings)} className="pl-3" />
         <SmallTotal label="Net" value={formatMoney(profit)} strong negative={profit < 0} className="pl-3" />
       </div>
+      {owed > 0 ? (
+        <p className="mt-4 flex items-center justify-between rounded-xl bg-[#fff4ee] px-3 py-2 text-xs font-semibold text-[#9f442c]">
+          <span>Owed to you · {owedCount} unpaid {owedCount === 1 ? "delivery" : "deliveries"}</span>
+          <span>{formatMoney(owed)}</span>
+        </p>
+      ) : null}
     </button>
   );
 }

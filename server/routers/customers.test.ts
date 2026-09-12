@@ -58,4 +58,12 @@ describe("customers procedures", () => {
     expect(dbMock.updateCustomer).toHaveBeenCalledWith(47, 9, expect.objectContaining({ name: "Pasar Tani stall", phone: null }));
     expect(dbMock.deleteCustomer).toHaveBeenCalledWith(47, 9);
   });
+
+  it("stores each customer's payment habit, defaulting to paying on delivery", async () => {
+    const caller = customersRouter.createCaller(createContext(47));
+    await caller.create(customerInput);
+    await caller.create({ ...customerInput, paymentTerms: "next_delivery" });
+    expect(dbMock.createCustomer.mock.calls.map(([record]) => record.paymentTerms)).toEqual(["on_delivery", "next_delivery"]);
+    await expect(caller.create({ ...customerInput, paymentTerms: "someday" as never })).rejects.toThrow();
+  });
 });

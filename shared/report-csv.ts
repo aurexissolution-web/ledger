@@ -11,6 +11,8 @@ export type ReportCsvChiliSale = {
   recipientName: string;
   quantityKg: string;
   totalCents: number;
+  /** When it was paid; null = still unpaid. Undefined leaves the column blank. */
+  paidAt?: number | null;
   /** Empty on sales recorded before grades existed. */
   gradeLines?: { grade: string; quantityKg: string; pricePerKgCents: number; totalCents: number }[];
 };
@@ -24,7 +26,7 @@ export type ReportCsvInput = {
   formatMoney: (cents: number) => string;
 };
 
-const HEADER = ["Business", "Type", "Date", "Description", "Party", "Qty", "Income (RM)", "Expense (RM)", "Notes"];
+const HEADER = ["Business", "Type", "Date", "Description", "Party", "Qty", "Income (RM)", "Expense (RM)", "Notes", "Paid on"];
 const UTF8_BOM = "﻿";
 
 /** RFC-4180 quoting: wrap in quotes (doubling any inner quotes) whenever the field contains a comma, quote, or newline. */
@@ -41,28 +43,29 @@ export function reportToCsvRows(input: ReportCsvInput): string[][] {
   const rows: string[][] = [HEADER];
 
   for (const job of input.subconJobs) {
-    rows.push(["Subcon", "Income", formatDate(job.workDate), job.jobTitle, job.clientName ?? "", "", formatMoney(job.incomeCents), "", ""]);
+    rows.push(["Subcon", "Income", formatDate(job.workDate), job.jobTitle, job.clientName ?? "", "", formatMoney(job.incomeCents), "", "", ""]);
     for (const line of job.costLines) {
-      rows.push(["Subcon", "Cost", formatDate(job.workDate), `${job.jobTitle} — ${line.label}`, job.clientName ?? "", "", "", formatMoney(line.amountCents), ""]);
+      rows.push(["Subcon", "Cost", formatDate(job.workDate), `${job.jobTitle} — ${line.label}`, job.clientName ?? "", "", "", formatMoney(line.amountCents), "", ""]);
     }
     for (const payment of job.workerPayments) {
-      rows.push(["Subcon", "Staff payment", formatDate(job.workDate), job.jobTitle, payment.staffName, "", "", formatMoney(payment.amountCents), ""]);
+      rows.push(["Subcon", "Staff payment", formatDate(job.workDate), job.jobTitle, payment.staffName, "", "", formatMoney(payment.amountCents), "", ""]);
     }
   }
 
   for (const sale of input.chiliSales) {
+    const paid = sale.paidAt === undefined ? "" : sale.paidAt === null ? "Unpaid" : formatDate(sale.paidAt);
     if (!sale.gradeLines?.length) {
-      rows.push(["Chili", "Sale", formatDate(sale.saleDate), sale.recipientName, sale.recipientName, `${sale.quantityKg} kg`, formatMoney(sale.totalCents), "", ""]);
+      rows.push(["Chili", "Sale", formatDate(sale.saleDate), sale.recipientName, sale.recipientName, `${sale.quantityKg} kg`, formatMoney(sale.totalCents), "", "", paid]);
       continue;
     }
     // One row per grade (like Subcon cost lines), so rows still sum to the sale total.
     for (const line of sale.gradeLines) {
-      rows.push(["Chili", "Sale", formatDate(sale.saleDate), `${sale.recipientName} — Grade ${line.grade}`, sale.recipientName, `${line.quantityKg} kg`, formatMoney(line.totalCents), "", `${formatMoney(line.pricePerKgCents)}/kg`]);
+      rows.push(["Chili", "Sale", formatDate(sale.saleDate), `${sale.recipientName} — Grade ${line.grade}`, sale.recipientName, `${line.quantityKg} kg`, formatMoney(line.totalCents), "", `${formatMoney(line.pricePerKgCents)}/kg`, paid]);
     }
   }
 
   for (const expense of input.chiliExpenses) {
-    rows.push(["Chili", "Expense", formatDate(expense.expenseDate), expense.category, "", "", "", formatMoney(expense.amountCents), ""]);
+    rows.push(["Chili", "Expense", formatDate(expense.expenseDate), expense.category, "", "", "", formatMoney(expense.amountCents), "", ""]);
   }
 
   return rows;

@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { trpc } from "@/lib/trpc";
 import { KeyRound, Leaf, Pencil, Plus, ShieldCheck, Trash2, Users } from "lucide-react";
 import { FormEvent, useState } from "react";
@@ -170,9 +171,11 @@ function ProfilesCard() {
 /* Chili customers                                                      */
 /* ------------------------------------------------------------------ */
 
-type CustomerRecord = { id: number; name: string; phone: string | null; location: string | null };
-type CustomerForm = { name: string; phone: string; location: string };
-const blankCustomer = (): CustomerForm => ({ name: "", phone: "", location: "" });
+type PaymentTerms = "on_delivery" | "next_delivery";
+type CustomerRecord = { id: number; name: string; phone: string | null; location: string | null; paymentTerms: PaymentTerms };
+type CustomerForm = { name: string; phone: string; location: string; paymentTerms: PaymentTerms };
+const blankCustomer = (): CustomerForm => ({ name: "", phone: "", location: "", paymentTerms: "on_delivery" });
+const PAYMENT_TERMS_LABELS: Record<PaymentTerms, string> = { on_delivery: "Pays on delivery", next_delivery: "Pays on next delivery" };
 
 function CustomersCard() {
   const utils = trpc.useUtils();
@@ -189,7 +192,7 @@ function CustomersCard() {
   const customers = (customersQuery.data ?? []) as CustomerRecord[];
   const isSaving = createCustomer.isPending || updateCustomer.isPending;
   const openNew = () => { setEditing(null); setForm(blankCustomer()); setDialogOpen(true); };
-  const openEdit = (record: CustomerRecord) => { setEditing(record); setForm({ name: record.name, phone: record.phone ?? "", location: record.location ?? "" }); setDialogOpen(true); };
+  const openEdit = (record: CustomerRecord) => { setEditing(record); setForm({ name: record.name, phone: record.phone ?? "", location: record.location ?? "", paymentTerms: record.paymentTerms ?? "on_delivery" }); setDialogOpen(true); };
   const save = (event: FormEvent) => { event.preventDefault(); if (editing) updateCustomer.mutate({ id: editing.id, ...form }); else createCustomer.mutate(form); };
 
   return (
@@ -205,18 +208,19 @@ function CustomersCard() {
         <>
           <div className="divide-y divide-[#ece9e0] md:hidden">
             {customers.map(record => (
-              <MobileRecord key={record.id} title={record.name} subtitle={[record.phone, record.location].filter(Boolean).join(" · ") || "No contact saved"} actions={<RowActions name={record.name} onEdit={() => openEdit(record)} onDelete={() => setDeleting(record)} />} />
+              <MobileRecord key={record.id} title={record.name} subtitle={[record.phone, record.location].filter(Boolean).join(" · ") || "No contact saved"} fields={[{ label: "Payment", value: PAYMENT_TERMS_LABELS[record.paymentTerms ?? "on_delivery"] }]} actions={<RowActions name={record.name} onEdit={() => openEdit(record)} onDelete={() => setDeleting(record)} />} />
             ))}
           </div>
           <div className="hidden overflow-x-auto md:block">
             <table className="ledger-table w-full text-left">
-              <thead className="bg-[#f8f7f1] text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground"><tr><th className="px-6 py-4">Customer</th><th className="px-4 py-4">Phone</th><th className="px-4 py-4">Location</th><th className="px-6 py-4 text-right">Actions</th></tr></thead>
+              <thead className="bg-[#f8f7f1] text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground"><tr><th className="px-6 py-4">Customer</th><th className="px-4 py-4">Phone</th><th className="px-4 py-4">Location</th><th className="px-4 py-4">Payment</th><th className="px-6 py-4 text-right">Actions</th></tr></thead>
               <tbody className="divide-y divide-[#ece9e0]">
                 {customers.map(record => (
                   <tr key={record.id} className="transition-colors hover:bg-[#fcfbf7]">
                     <td className="px-6 py-4 font-semibold">{record.name}</td>
                     <td className="px-4 py-4 text-sm text-muted-foreground">{record.phone || "—"}</td>
                     <td className="px-4 py-4 text-sm text-muted-foreground">{record.location || "—"}</td>
+                    <td className="px-4 py-4 text-sm">{PAYMENT_TERMS_LABELS[record.paymentTerms ?? "on_delivery"]}</td>
                     <td className="px-6 py-4"><div className="flex justify-end gap-1"><RowActions name={record.name} onEdit={() => openEdit(record)} onDelete={() => setDeleting(record)} /></div></td>
                   </tr>
                 ))}
@@ -236,6 +240,16 @@ function CustomersCard() {
               <FormField label="Name" required><Input required autoFocus placeholder="e.g. Pasar Tani stall, Kak Mah" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} /></FormField>
               <FormField label="Phone"><Input inputMode="tel" placeholder="Phone number" value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} /></FormField>
               <FormField label="Location"><Input placeholder="Market, shop or area" value={form.location} onChange={e => setForm({ ...form, location: e.target.value })} /></FormField>
+              <FormField label="Payment habit">
+                <Select value={form.paymentTerms} onValueChange={value => setForm({ ...form, paymentTerms: value as PaymentTerms })}>
+                  <SelectTrigger className="w-full" aria-label="Payment habit"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="on_delivery">Pays on delivery</SelectItem>
+                    <SelectItem value="next_delivery">Pays on the next delivery</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">New sales for this customer start as {form.paymentTerms === "next_delivery" ? "unpaid, until they pay on the next delivery" : "paid"}. You can still change it on each sale.</p>
+              </FormField>
             </div>
             <DialogFooter className="dialog-footer px-6 py-4"><Button type="button" variant="ghost" onClick={closeDialog}>Cancel</Button><Button type="submit" variant="chili" disabled={isSaving}>{isSaving ? "Saving…" : editing ? "Save changes" : "Save customer"}</Button></DialogFooter>
           </form>

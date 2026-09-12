@@ -32,18 +32,20 @@ describe("reportToCsvRows", () => {
         costLines: [{ label: "Cables", amountCents: 15_000 }],
         workerPayments: [{ staffName: "Ali", amountCents: 120_000 }],
       }],
-      chiliSales: [{ saleDate: 2, recipientName: "Pasar Tani", quantityKg: "10.00", totalCents: 8_000 }],
+      chiliSales: [{ saleDate: 2, recipientName: "Pasar Tani", quantityKg: "10.00", totalCents: 8_000, paidAt: null }],
       chiliExpenses: [{ expenseDate: 3, category: "Fertiliser", amountCents: 5_000 }],
       formatDate,
       formatMoney,
     });
 
     expect(rows).toHaveLength(6); // header + income + cost line + worker payment + sale + expense
-    expect(rows[1]).toEqual(["Subcon", "Income", "date:1", "Shop rewiring", "ABC Sdn Bhd", "", "RM5000.00", "", ""]);
-    expect(rows[2]).toEqual(["Subcon", "Cost", "date:1", "Shop rewiring — Cables", "ABC Sdn Bhd", "", "", "RM150.00", ""]);
-    expect(rows[3]).toEqual(["Subcon", "Staff payment", "date:1", "Shop rewiring", "Ali", "", "", "RM1200.00", ""]);
-    expect(rows[4]).toEqual(["Chili", "Sale", "date:2", "Pasar Tani", "Pasar Tani", "10.00 kg", "RM80.00", "", ""]);
-    expect(rows[5]).toEqual(["Chili", "Expense", "date:3", "Fertiliser", "", "", "", "RM50.00", ""]);
+    expect(rows[0].at(-1)).toBe("Paid on");
+    expect(rows.every(row => row.length === rows[0].length)).toBe(true);
+    expect(rows[1]).toEqual(["Subcon", "Income", "date:1", "Shop rewiring", "ABC Sdn Bhd", "", "RM5000.00", "", "", ""]);
+    expect(rows[2]).toEqual(["Subcon", "Cost", "date:1", "Shop rewiring — Cables", "ABC Sdn Bhd", "", "", "RM150.00", "", ""]);
+    expect(rows[3]).toEqual(["Subcon", "Staff payment", "date:1", "Shop rewiring", "Ali", "", "", "RM1200.00", "", ""]);
+    expect(rows[4]).toEqual(["Chili", "Sale", "date:2", "Pasar Tani", "Pasar Tani", "10.00 kg", "RM80.00", "", "", "Unpaid"]);
+    expect(rows[5]).toEqual(["Chili", "Expense", "date:3", "Fertiliser", "", "", "", "RM50.00", "", ""]);
   });
 
   it("splits a graded chili sale into one row per grade that sum to the sale total", () => {
@@ -54,6 +56,7 @@ describe("reportToCsvRows", () => {
         recipientName: "Kedai Ah Seng",
         quantityKg: "50.00",
         totalCents: 52_000,
+        paidAt: 9,
         gradeLines: [
           { grade: "A", quantityKg: "30.00", pricePerKgCents: 1_200, totalCents: 36_000 },
           { grade: "B", quantityKg: "20.00", pricePerKgCents: 800, totalCents: 16_000 },
@@ -65,8 +68,8 @@ describe("reportToCsvRows", () => {
     });
 
     expect(rows.slice(1)).toEqual([
-      ["Chili", "Sale", "date:4", "Kedai Ah Seng — Grade A", "Kedai Ah Seng", "30.00 kg", "RM360.00", "", "RM12.00/kg"],
-      ["Chili", "Sale", "date:4", "Kedai Ah Seng — Grade B", "Kedai Ah Seng", "20.00 kg", "RM160.00", "", "RM8.00/kg"],
+      ["Chili", "Sale", "date:4", "Kedai Ah Seng — Grade A", "Kedai Ah Seng", "30.00 kg", "RM360.00", "", "RM12.00/kg", "date:9"],
+      ["Chili", "Sale", "date:4", "Kedai Ah Seng — Grade B", "Kedai Ah Seng", "20.00 kg", "RM160.00", "", "RM8.00/kg", "date:9"],
     ]);
   });
 

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { CHILI_GRADES, type AttachmentKind } from "../../shared/schema";
 import * as attachments from "../attachments";
 import * as db from "../db";
+import { summarizeOwed } from "../../shared/chili-payments";
 import { calculateChiliTotals, calculateGradedSale, calculateSubconTotals } from "../business-calculations";
 import { adminProcedure, protectedProcedure, router } from "../_core/trpc";
 
@@ -52,7 +53,15 @@ const chiliSaleSchema = z.object({
     .refine(lines => new Set(lines.map(line => line.grade)).size === lines.length, "Each grade can only appear once"),
   deliveryNotes: textInput(2000),
   attachmentIds: attachmentIdsInput,
+  /** When the customer paid; null = they'll pay later (e.g. on the next delivery). */
+  paidAt: dateInput.nullable().default(null),
 });
+
+function assertPaidOnOrAfterSale(paidAt: number | null, saleDate: number) {
+  if (paidAt !== null && paidAt < saleDate) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "The payment date can't be before the sale date" });
+  }
+}
 
 const chiliExpenseSchema = z.object({
   expenseDate: dateInput,
@@ -93,6 +102,7 @@ export const businessRouter = router({
     ]);
     const subconTotals = calculateSubconTotals(subcon);
     const chiliTotals = calculateChiliTotals(chiliSales, chiliExpenses);
+    const owed = summarizeOwed(chiliSales);
     const incomeCents = subconTotals.incomeCents + chiliTotals.incomeCents;
     const outgoingsCents = subconTotals.outgoingsCents + chiliTotals.outgoingsCents;
     const recentActivity = [
@@ -105,7 +115,7 @@ export const businessRouter = router({
       outgoingsCents,
       profitCents: incomeCents - outgoingsCents,
       subcon: { ...subconTotals, profitCents: subconTotals.incomeCents - subconTotals.outgoingsCents },
-      chili: { ...chiliTotals, profitCents: chiliTotals.incomeCents - chiliTotals.outgoingsCents },
+      chili: { ...chiliTotals, profitCents: chiliTotals.incomeCents - chiliTotals.outgoingsCents, owedCents: owed.totalCents, owedCount: owed.count },
       recentActivity,
       canSeeSubcon,
     };
@@ -217,6 +227,7 @@ export const businessRouter = router({
       const householdId = ctx.user.householdId;
       const expected = expectedKinds(input.attachmentIds, "invoice");
       await attachments.validateNewAttachments(householdId, expected, "chiliSale", -1);
+      assertPaidOnOrAfterSale(input.paidAt, input.saleDate);
       const customer = await resolveCustomer(householdId, input.customerId);
       // `grades` isn't a column: it becomes the derived grade lines and totals.
       const { grades, ...record } = input;
@@ -228,6 +239,7 @@ export const businessRouter = router({
       const householdId = ctx.user.householdId;
       const { id, ...changes } = input;
       const existing = (await db.getChiliSaleById(householdId, id)) ?? notFound("Chili sale");
+      assertPaidOnOrAfterSale(changes.paidAt, changes.saleDate);
       const expected = expectedKinds(changes.attachmentIds, "invoice");
       await attachments.validateNewAttachments(householdId, expected, "chiliSale", id);
       const customer = await resolveCustomer(householdId, changes.customerId);
@@ -235,6 +247,16 @@ export const businessRouter = router({
       await db.updateChiliSale(householdId, id, { ...record, ...customer, ...calculateGradedSale(grades) });
       await attachments.syncRecordAttachments({ householdId, linkedType: "chiliSale", linkedId: id, expected, prevIds: existing.attachmentIds });
       return { success: true };
+    }),
+    /** Records a customer's payment for one or more earlier sales. */
+    markPaid: protectedProcedure.input(z.object({ ids: z.array(recordId).min(1).max(50), paidAt: dateInput })).mutation(async ({ ctx, input }) => {
+      const householdId = ctx.user.householdId;
+      const ids = Array.from(new Set(input.ids));
+      const sales = await db.getChiliSalesByIds(householdId, ids);
+      if (sales.length !== ids.length) notFound("Chili sale");
+      for (const sale of sales) assertPaidOnOrAfterSale(input.paidAt, sale.saleDate);
+      await db.markChiliSalesPaid(householdId, ids, input.paidAt);
+      return { success: true, count: ids.length };
     }),
     deleteSale: protectedProcedure.input(z.object({ id: recordId })).mutation(async ({ ctx, input }) => {
       await db.deleteChiliSale(ctx.user.householdId, input.id);
