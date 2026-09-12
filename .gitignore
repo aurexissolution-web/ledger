@@ -7,7 +7,6 @@ dist/
 build/
 *.dist
 # Bundled by vercel.json's buildCommand at deploy time — see server/_core/vercelEntry.ts
-api/index.js
 
 # Environment variables
 .env

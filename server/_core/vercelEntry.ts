@@ -12,11 +12,11 @@ const app = createApp();
 // (dist/public/assets/*) are served directly by Vercel's CDN via
 // static-file priority before this function is ever invoked.
 //
-// index.html is imported above and inlined into this bundle as a plain
-// string at build time (esbuild's --loader:.html=text) rather than read
-// from disk at runtime — Vercel's `functions.includeFiles` config requires
-// the target to be a committed source file, which api/index.js isn't (it's
-// generated fresh by the build), so runtime file access isn't an option.
+// The build command bundles this file to dist/vercel/index.js, and the
+// committed api/index.js re-exports it: Vercel only creates functions for
+// files that exist in the repo, so the bundle can't be written to api/
+// directly. index.html is inlined as a string at build time (esbuild's
+// --loader:.html=text) so the function never reads it from disk.
 app.get("*", (_req, res) => {
   res.set("Content-Type", "text/html").send(indexHtml);
 });

@@ -1,5 +1,5 @@
 {
-  "buildCommand": "vite build && mkdir -p api && esbuild server/_core/vercelEntry.ts --bundle --platform=node --format=esm --packages=external --loader:.html=text --outfile=api/index.js",
+  "buildCommand": "vite build && esbuild server/_core/vercelEntry.ts --bundle --platform=node --format=esm --packages=external --loader:.html=text --outfile=dist/vercel/index.js",
   "outputDirectory": "dist/public",
   "regions": ["sin1"],
   "rewrites": [
