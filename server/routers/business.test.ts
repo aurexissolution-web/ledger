@@ -95,8 +95,7 @@ const subconOutgoingInput = {
 const chiliSaleInput = {
   saleDate: 1_700_000_000_000,
   customerId: 3,
-  quantityKg: 15.5,
-  pricePerKgCents: 850,
+  grades: [{ grade: "A" as const, quantityKg: 15.5, pricePerKgCents: 850 }],
   deliveryNotes: "Collected at farm gate",
   attachmentIds: [40],
 };
@@ -213,6 +212,35 @@ describe("business procedures", () => {
     expect(attachmentsMock.syncRecordAttachments).toHaveBeenCalledWith({ householdId: 81, linkedType: "chiliSale", linkedId: 11, expected: { 40: "invoice" }, prevIds: [41] });
     expect(dbMock.deleteChiliExpense).toHaveBeenCalledWith(81, 14);
     expect(attachmentsMock.deleteAttachmentsForRecord).toHaveBeenCalledWith(81, "chiliExpense", 14);
+  });
+
+  it("stores both grades of a Chili sale as lines with derived sale totals", async () => {
+    const caller = businessRouter.createCaller(createContext(81));
+
+    await caller.chili.createSale({ ...chiliSaleInput, grades: [{ grade: "B", quantityKg: 20, pricePerKgCents: 800 }, { grade: "A", quantityKg: 30, pricePerKgCents: 1_200 }] });
+
+    const record = dbMock.createChiliSale.mock.calls[0][0];
+    expect(record).toMatchObject({
+      userId: 81,
+      customerId: 3,
+      recipientName: "Market customer",
+      gradeLines: [
+        { grade: "A", quantityKg: "30.00", pricePerKgCents: 1_200, totalCents: 36_000 },
+        { grade: "B", quantityKg: "20.00", pricePerKgCents: 800, totalCents: 16_000 },
+      ],
+      quantityKg: "50.00",
+      pricePerKgCents: 1_040,
+      totalCents: 52_000,
+    });
+    expect(record).not.toHaveProperty("grades");
+  });
+
+  it("rejects Chili sales with no grades or the same grade twice", async () => {
+    const caller = businessRouter.createCaller(createContext(81));
+
+    await expect(caller.chili.createSale({ ...chiliSaleInput, grades: [] })).rejects.toThrow(/at least one grade/);
+    await expect(caller.chili.createSale({ ...chiliSaleInput, grades: [{ grade: "A", quantityKg: 1, pricePerKgCents: 100 }, { grade: "A", quantityKg: 2, pricePerKgCents: 100 }] })).rejects.toThrow(/only appear once/);
+    expect(dbMock.createChiliSale).not.toHaveBeenCalled();
   });
 
   it("rejects Chili sales for a customer the household does not own", async () => {

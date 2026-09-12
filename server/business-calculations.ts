@@ -1,3 +1,5 @@
+import { CHILI_GRADES, type ChiliGrade, type ChiliSale } from "../shared/schema";
+
 export type SubconTotalsInput = {
   incomeCents: number;
   expenseCents: number;
@@ -35,4 +37,29 @@ export function calculateChiliTotals(sales: ChiliTotalsInput[], expenses: ChiliE
 
 export function calculateSaleTotalCents(quantityKg: number, pricePerKgCents: number) {
   return Math.round(quantityKg * pricePerKgCents);
+}
+
+export type GradeLineInput = { grade: ChiliGrade; quantityKg: number; pricePerKgCents: number };
+
+/**
+ * Turns the form's grade rows into stored grade lines plus the sale-level
+ * fields every other view reads: total kg, total money, and the kg-weighted
+ * price per kg.
+ */
+export function calculateGradedSale(lines: GradeLineInput[]): Pick<ChiliSale, "gradeLines" | "quantityKg" | "pricePerKgCents" | "totalCents"> {
+  const sorted = [...lines].sort((a, b) => CHILI_GRADES.indexOf(a.grade) - CHILI_GRADES.indexOf(b.grade));
+  const gradeLines = sorted.map(line => ({
+    grade: line.grade,
+    quantityKg: line.quantityKg.toFixed(2),
+    pricePerKgCents: line.pricePerKgCents,
+    totalCents: calculateSaleTotalCents(line.quantityKg, line.pricePerKgCents),
+  }));
+  const kg = sorted.reduce((sum, line) => sum + line.quantityKg, 0);
+  const value = sorted.reduce((sum, line) => sum + line.quantityKg * line.pricePerKgCents, 0);
+  return {
+    gradeLines,
+    quantityKg: kg.toFixed(2),
+    pricePerKgCents: kg > 0 ? Math.round(value / kg) : 0,
+    totalCents: gradeLines.reduce((sum, line) => sum + line.totalCents, 0),
+  };
 }

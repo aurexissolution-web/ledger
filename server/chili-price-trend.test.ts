@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildPriceTrend, priceTrendYears, type PriceTrendSale } from "../shared/chili-price-trend";
+import { buildGradeTrends, buildPriceTrend, gradedTrendYears, gradePoints, priceTrendYears, type GradedSale, type PriceTrendSale } from "../shared/chili-price-trend";
 
 let nextId = 1;
 // Local noon, the same way the app saves sale dates.
@@ -72,5 +72,43 @@ describe("priceTrendYears", () => {
     const sales = [sale(2024, 3, 1, 5, 900), sale(2026, 3, 1, 5, 900), sale(2024, 8, 1, 5, 900), sale(2023, 1, 1, 5, 0)];
     expect(priceTrendYears(sales, 2027)).toEqual([2027, 2026, 2024]);
     expect(priceTrendYears([], 2026)).toEqual([2026]);
+  });
+});
+
+function graded(year: number, month: number, day: number, lines: [grade: "A" | "B", kg: number, pricePerKgCents: number][], recipientName = "Buyer"): GradedSale {
+  return {
+    id: nextId++,
+    saleDate: new Date(year, month, day, 12).getTime(),
+    recipientName,
+    gradeLines: lines.map(([grade, kg, pricePerKgCents]) => ({ grade, quantityKg: kg.toFixed(2), pricePerKgCents })),
+  };
+}
+
+describe("grade trends", () => {
+  it("splits a sale with both grades into one price point per grade", () => {
+    const both = graded(2026, 4, 2, [["A", 30, 1500], ["B", 20, 900]], "Kedai");
+    expect(gradePoints([both], "A")).toEqual([{ id: both.id, saleDate: both.saleDate, recipientName: "Kedai", quantityKg: "30.00", pricePerKgCents: 1500 }]);
+    expect(gradePoints([both], "B")).toEqual([{ id: both.id, saleDate: both.saleDate, recipientName: "Kedai", quantityKg: "20.00", pricePerKgCents: 900 }]);
+  });
+
+  it("builds an independent trend for each grade and skips ungraded sales", () => {
+    const sales = [
+      graded(2026, 0, 5, [["A", 100, 1000], ["B", 50, 600]]),
+      graded(2026, 0, 9, [["A", 10, 1400]]),
+      graded(2026, 2, 1, [["B", 40, 700]]),
+      graded(2026, 2, 3, []),
+    ];
+    const trends = buildGradeTrends(sales, 2026);
+    expect(Math.round(trends.A.months[0].avgPerKgCents!)).toBe(1036);
+    expect(trends.A.months[2].avgPerKgCents).toBeNull();
+    expect(trends.B.months[0].avgPerKgCents).toBe(600);
+    expect(trends.B.months[2].avgPerKgCents).toBe(700);
+    expect([trends.A.saleCount, trends.B.saleCount]).toEqual([2, 2]);
+    expect([trends.A.kg, trends.B.kg]).toEqual([110, 90]);
+    expect([trends.B.bestMonth, trends.B.lowestMonth]).toEqual([2, 0]);
+  });
+
+  it("lists years that have a sale of either grade", () => {
+    expect(gradedTrendYears([graded(2024, 1, 1, [["B", 5, 500]]), graded(2025, 1, 1, [["A", 5, 500]]), graded(2023, 1, 1, [])], 2026)).toEqual([2026, 2025, 2024]);
   });
 });

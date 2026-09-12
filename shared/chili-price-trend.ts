@@ -7,7 +7,11 @@
  *
  * Months are bucketed in the runtime's local time, matching how sale dates
  * are entered and shown (client/src/lib/format.ts saves them at local noon).
+ *
+ * Each grade gets its own trend: a sale's grade lines are split into one
+ * price point per grade (see gradePoints / buildGradeTrends).
  */
+import { CHILI_GRADES, type ChiliGrade, type ChiliGradeLine } from "./schema";
 
 export type PriceTrendSale = {
   id: number;
@@ -94,6 +98,32 @@ export function buildPriceTrend(sales: PriceTrendSale[], year: number): PriceTre
     lowestMonth,
     latest: last ? { saleDate: last.saleDate, pricePerKgCents: last.pricePerKgCents } : null,
   };
+}
+
+export type GradedSale = {
+  id: number;
+  saleDate: number;
+  recipientName: string;
+  /** Missing or empty on sales recorded before grades existed. */
+  gradeLines?: Pick<ChiliGradeLine, "grade" | "quantityKg" | "pricePerKgCents">[] | null;
+};
+
+/** One price point per sale that includes `grade`. Sales without grade lines are skipped. */
+export function gradePoints(sales: GradedSale[], grade: ChiliGrade): PriceTrendSale[] {
+  return sales.flatMap(sale =>
+    (sale.gradeLines ?? [])
+      .filter(line => line.grade === grade)
+      .map(line => ({ id: sale.id, saleDate: sale.saleDate, recipientName: sale.recipientName, quantityKg: line.quantityKg, pricePerKgCents: line.pricePerKgCents })),
+  );
+}
+
+export function buildGradeTrends(sales: GradedSale[], year: number): Record<ChiliGrade, PriceTrend> {
+  return Object.fromEntries(CHILI_GRADES.map(grade => [grade, buildPriceTrend(gradePoints(sales, grade), year)])) as Record<ChiliGrade, PriceTrend>;
+}
+
+/** Years with a priced sale of any grade, plus the current year, newest first. */
+export function gradedTrendYears(sales: GradedSale[], currentYear: number): number[] {
+  return priceTrendYears(CHILI_GRADES.flatMap(grade => gradePoints(sales, grade)), currentYear);
 }
 
 /** Years that have priced sales, plus the current year, newest first. */

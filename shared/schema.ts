@@ -118,6 +118,18 @@ export type Customer = {
   updatedAt: Date;
 };
 
+export const CHILI_GRADES = ["A", "B"] as const;
+export type ChiliGrade = (typeof CHILI_GRADES)[number];
+
+/** One grade within a sale. */
+export type ChiliGradeLine = {
+  grade: ChiliGrade;
+  /** 2-dp string, like ChiliSale.quantityKg. */
+  quantityKg: string;
+  pricePerKgCents: number;
+  totalCents: number;
+};
+
 export type ChiliSale = {
   id: number;
   userId: number;
@@ -127,8 +139,13 @@ export type ChiliSale = {
   /** Snapshots of the customer at sale time — survive later renames/deletions. */
   recipientName: string;
   customerContact: string | null;
+  /** 1–2 lines, A before B. Empty only on sales recorded before grades existed. */
+  gradeLines: ChiliGradeLine[];
+  /** Derived, stored: Σ line kg. */
   quantityKg: string;
+  /** Derived, stored: kg-weighted average of the lines' prices. */
   pricePerKgCents: number;
+  /** Derived, stored: Σ line totals. */
   totalCents: number;
   deliveryNotes: string | null;
   attachmentIds: number[];

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calculateChiliTotals, calculateSaleTotalCents, calculateSubconProjectProfit, calculateSubconTotals } from "./business-calculations";
+import { calculateChiliTotals, calculateGradedSale, calculateSaleTotalCents, calculateSubconProjectProfit, calculateSubconTotals } from "./business-calculations";
 
 describe("business calculations", () => {
   it("calculates Subcon income, outgoings, worker payments, and profit inputs", () => {
@@ -21,6 +21,27 @@ describe("business calculations", () => {
 
   it("calculates a sale total from quantity and price per kilogram", () => {
     expect(calculateSaleTotalCents(12.5, 880)).toBe(11_000);
+  });
+
+  it("derives a graded sale's lines, total kg, total money and kg-weighted price", () => {
+    expect(calculateGradedSale([{ grade: "B", quantityKg: 10, pricePerKgCents: 1_400 }, { grade: "A", quantityKg: 100, pricePerKgCents: 1_000 }])).toEqual({
+      gradeLines: [
+        { grade: "A", quantityKg: "100.00", pricePerKgCents: 1_000, totalCents: 100_000 },
+        { grade: "B", quantityKg: "10.00", pricePerKgCents: 1_400, totalCents: 14_000 },
+      ],
+      quantityKg: "110.00",
+      pricePerKgCents: 1_036,
+      totalCents: 114_000,
+    });
+  });
+
+  it("handles a single grade and rounds each line to the cent", () => {
+    expect(calculateGradedSale([{ grade: "B", quantityKg: 12.35, pricePerKgCents: 777 }])).toEqual({
+      gradeLines: [{ grade: "B", quantityKg: "12.35", pricePerKgCents: 777, totalCents: 9_596 }],
+      quantityKg: "12.35",
+      pricePerKgCents: 777,
+      totalCents: 9_596,
+    });
   });
 });
 

@@ -6,7 +6,14 @@ export type ReportCsvSubconJob = {
   costLines: { label: string; amountCents: number }[];
   workerPayments: { staffName: string; amountCents: number }[];
 };
-export type ReportCsvChiliSale = { saleDate: number; recipientName: string; quantityKg: string; totalCents: number };
+export type ReportCsvChiliSale = {
+  saleDate: number;
+  recipientName: string;
+  quantityKg: string;
+  totalCents: number;
+  /** Empty on sales recorded before grades existed. */
+  gradeLines?: { grade: string; quantityKg: string; pricePerKgCents: number; totalCents: number }[];
+};
 export type ReportCsvChiliExpense = { expenseDate: number; category: string; amountCents: number };
 
 export type ReportCsvInput = {
@@ -44,7 +51,14 @@ export function reportToCsvRows(input: ReportCsvInput): string[][] {
   }
 
   for (const sale of input.chiliSales) {
-    rows.push(["Chili", "Sale", formatDate(sale.saleDate), sale.recipientName, sale.recipientName, `${sale.quantityKg} kg`, formatMoney(sale.totalCents), "", ""]);
+    if (!sale.gradeLines?.length) {
+      rows.push(["Chili", "Sale", formatDate(sale.saleDate), sale.recipientName, sale.recipientName, `${sale.quantityKg} kg`, formatMoney(sale.totalCents), "", ""]);
+      continue;
+    }
+    // One row per grade (like Subcon cost lines), so rows still sum to the sale total.
+    for (const line of sale.gradeLines) {
+      rows.push(["Chili", "Sale", formatDate(sale.saleDate), `${sale.recipientName} — Grade ${line.grade}`, sale.recipientName, `${line.quantityKg} kg`, formatMoney(line.totalCents), "", `${formatMoney(line.pricePerKgCents)}/kg`]);
+    }
   }
 
   for (const expense of input.chiliExpenses) {

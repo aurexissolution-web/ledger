@@ -46,6 +46,30 @@ describe("reportToCsvRows", () => {
     expect(rows[5]).toEqual(["Chili", "Expense", "date:3", "Fertiliser", "", "", "", "RM50.00", ""]);
   });
 
+  it("splits a graded chili sale into one row per grade that sum to the sale total", () => {
+    const rows = reportToCsvRows({
+      subconJobs: [],
+      chiliSales: [{
+        saleDate: 4,
+        recipientName: "Kedai Ah Seng",
+        quantityKg: "50.00",
+        totalCents: 52_000,
+        gradeLines: [
+          { grade: "A", quantityKg: "30.00", pricePerKgCents: 1_200, totalCents: 36_000 },
+          { grade: "B", quantityKg: "20.00", pricePerKgCents: 800, totalCents: 16_000 },
+        ],
+      }],
+      chiliExpenses: [],
+      formatDate,
+      formatMoney,
+    });
+
+    expect(rows.slice(1)).toEqual([
+      ["Chili", "Sale", "date:4", "Kedai Ah Seng — Grade A", "Kedai Ah Seng", "30.00 kg", "RM360.00", "", "RM12.00/kg"],
+      ["Chili", "Sale", "date:4", "Kedai Ah Seng — Grade B", "Kedai Ah Seng", "20.00 kg", "RM160.00", "", "RM8.00/kg"],
+    ]);
+  });
+
   it("returns just the header when there are no records", () => {
     expect(reportToCsvRows({ subconJobs: [], chiliSales: [], chiliExpenses: [], formatDate, formatMoney })).toHaveLength(1);
   });

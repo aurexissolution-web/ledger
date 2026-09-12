@@ -4,6 +4,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { attachmentUrl, downloadUrl } from "@/lib/attachments";
 import { downloadTextFile } from "@/lib/download";
 import { formatDate, formatMoney } from "@/lib/format";
+import { describeLine, saleLines } from "@/lib/chili-grades";
 import { trpc } from "@/lib/trpc";
 import type { AppRouter } from "../../../server/routers";
 import { buildCsv, reportToCsvRows } from "@shared/report-csv";
@@ -132,8 +133,8 @@ function ReportBody({ year, report, attachmentsById }: { year: number; report: Y
         <section className="print-section surface-card mt-8 overflow-hidden">
           <SectionHeader icon={Leaf} eyebrow="Chili agriculture" title="Sales" count={report.chili.sales.length} />
           {report.chili.sales.length === 0 ? <EmptySection label="No chili sales recorded this year." /> : (
-            <div className="overflow-x-auto"><table className="ledger-table w-full min-w-[620px] text-left"><thead className="bg-[#f8f7f1] text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground"><tr><th className="px-6 py-3">Recipient</th><th className="px-4 py-3">Date</th><th className="px-4 py-3">Quantity</th><th className="px-6 py-3 text-right">Total</th></tr></thead><tbody className="divide-y divide-[#ece9e0]">
-              {report.chili.sales.map(sale => <tr key={sale.id} className="print-section"><td className="px-6 py-3 font-semibold">{sale.recipientName}</td><td className="px-4 py-3 text-sm text-muted-foreground">{formatDate(sale.saleDate)}</td><td className="px-4 py-3 text-sm">{Number(sale.quantityKg).toLocaleString(undefined, { maximumFractionDigits: 2 })} kg</td><td className="px-6 py-3 text-right text-sm font-semibold text-[#9f442c]">{formatMoney(sale.totalCents)}</td></tr>)}
+            <div className="overflow-x-auto"><table className="ledger-table w-full min-w-[620px] text-left"><thead className="bg-[#f8f7f1] text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground"><tr><th className="px-6 py-3">Recipient</th><th className="px-4 py-3">Date</th><th className="px-4 py-3">Grade · quantity · price</th><th className="px-6 py-3 text-right">Total</th></tr></thead><tbody className="divide-y divide-[#ece9e0]">
+              {report.chili.sales.map(sale => <tr key={sale.id} className="print-section"><td className="px-6 py-3 font-semibold">{sale.recipientName}</td><td className="px-4 py-3 text-sm text-muted-foreground">{formatDate(sale.saleDate)}</td><td className="px-4 py-3 text-sm">{saleLines(sale).map(line => <div key={line.grade ?? "-"}>{describeLine(line)}</div>)}</td><td className="px-6 py-3 text-right text-sm font-semibold text-[#9f442c]">{formatMoney(sale.totalCents)}</td></tr>)}
               <tr className="bg-[#f8f7f1] font-semibold"><td className="px-6 py-3" colSpan={3}>Total</td><td className="px-6 py-3 text-right">{formatMoney(report.chili.sales.reduce((sum, sale) => sum + sale.totalCents, 0))}</td></tr>
             </tbody></table></div>
           )}

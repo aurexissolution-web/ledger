@@ -1,9 +1,9 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import type { AttachmentKind } from "../../shared/schema";
+import { CHILI_GRADES, type AttachmentKind } from "../../shared/schema";
 import * as attachments from "../attachments";
 import * as db from "../db";
-import { calculateChiliTotals, calculateSaleTotalCents, calculateSubconTotals } from "../business-calculations";
+import { calculateChiliTotals, calculateGradedSale, calculateSubconTotals } from "../business-calculations";
 import { adminProcedure, protectedProcedure, router } from "../_core/trpc";
 
 const dateInput = z.number().int().positive();
@@ -39,11 +39,17 @@ const subconOutgoingSchema = z.object({
   workerPayments: z.array(workerPaymentInput).max(50),
 });
 
+const gradeLineInput = z.object({
+  grade: z.enum(CHILI_GRADES),
+  quantityKg: z.number().positive().max(1_000_000),
+  pricePerKgCents: centsInput,
+});
+
 const chiliSaleSchema = z.object({
   saleDate: dateInput,
   customerId: z.number().int().positive(),
-  quantityKg: z.number().positive().max(1_000_000),
-  pricePerKgCents: centsInput,
+  grades: z.array(gradeLineInput).min(1, "Enter the kg for at least one grade").max(CHILI_GRADES.length)
+    .refine(lines => new Set(lines.map(line => line.grade)).size === lines.length, "Each grade can only appear once"),
   deliveryNotes: textInput(2000),
   attachmentIds: attachmentIdsInput,
 });
@@ -212,8 +218,9 @@ export const businessRouter = router({
       const expected = expectedKinds(input.attachmentIds, "invoice");
       await attachments.validateNewAttachments(householdId, expected, "chiliSale", -1);
       const customer = await resolveCustomer(householdId, input.customerId);
-      const totalCents = calculateSaleTotalCents(input.quantityKg, input.pricePerKgCents);
-      const id = await db.createChiliSale({ ...input, ...customer, userId: householdId, quantityKg: input.quantityKg.toFixed(2), totalCents });
+      // `grades` isn't a column: it becomes the derived grade lines and totals.
+      const { grades, ...record } = input;
+      const id = await db.createChiliSale({ ...record, ...customer, userId: householdId, ...calculateGradedSale(grades) });
       await attachments.syncRecordAttachments({ householdId, linkedType: "chiliSale", linkedId: id, expected, prevIds: [] });
       return { success: true, id };
     }),
@@ -224,8 +231,8 @@ export const businessRouter = router({
       const expected = expectedKinds(changes.attachmentIds, "invoice");
       await attachments.validateNewAttachments(householdId, expected, "chiliSale", id);
       const customer = await resolveCustomer(householdId, changes.customerId);
-      const totalCents = calculateSaleTotalCents(changes.quantityKg, changes.pricePerKgCents);
-      await db.updateChiliSale(householdId, id, { ...changes, ...customer, quantityKg: changes.quantityKg.toFixed(2), totalCents });
+      const { grades, ...record } = changes;
+      await db.updateChiliSale(householdId, id, { ...record, ...customer, ...calculateGradedSale(grades) });
       await attachments.syncRecordAttachments({ householdId, linkedType: "chiliSale", linkedId: id, expected, prevIds: existing.attachmentIds });
       return { success: true };
     }),
