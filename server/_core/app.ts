@@ -5,11 +5,12 @@ import { appRouter } from "../routers";
 import { registerAttachmentRoutes } from "./attachmentRoutes";
 import { createContext } from "./context";
 import { registerCronRoutes } from "./cronRoutes";
+import { registerHealthRoutes } from "./healthRoutes";
 import { registerOAuthRoutes } from "./oauth";
 
 /**
  * Builds the Express app with every API route (tRPC, attachments, OAuth,
- * cron). No `.listen()`, no static file serving, no Vite dev middleware —
+ * cron, health). No `.listen()`, no static file serving, no Vite dev middleware —
  * those differ between a traditional long-running server
  * (server/_core/index.ts) and a Vercel serverless function (api/[...path].ts),
  * so both entry points import this shared app instead of duplicating routes.
@@ -21,6 +22,7 @@ export function createApp() {
   registerOAuthRoutes(app);
   registerAttachmentRoutes(app);
   registerCronRoutes(app);
+  registerHealthRoutes(app);
   app.use(
     "/api/trpc",
     createExpressMiddleware({

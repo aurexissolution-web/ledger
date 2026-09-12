@@ -64,6 +64,15 @@ export async function getUserByOpenId(openId: string): Promise<User | undefined>
   return data ? fromRow<User>(data) : undefined;
 }
 
+/**
+ * The cheapest real query. Proves the database answers — and counts as
+ * activity, which keeps Supabase's free plan from pausing the project after
+ * a quiet week (see /api/health and the daily cron).
+ */
+export async function ping(): Promise<void> {
+  await requireSupabase().from("users").select("id").limit(1).throwOnError();
+}
+
 export async function getUserById(id: number): Promise<User | undefined> {
   const { data } = await requireSupabase().from("users").select("*").eq("id", id).maybeSingle().throwOnError();
   return data ? fromRow<User>(data) : undefined;

@@ -1,5 +1,6 @@
 import type { Express } from "express";
 import { sweepOrphans } from "../attachments";
+import { ping } from "../db";
 
 /**
  * Vercel Cron Jobs sign requests with `Authorization: Bearer <CRON_SECRET>`
@@ -15,6 +16,9 @@ export function registerCronRoutes(app: Express) {
       return;
     }
     try {
+      // Runs daily even when nobody opens the app, so this query also keeps
+      // the Supabase free-plan project from pausing after a week of inactivity.
+      await ping();
       const removed = await sweepOrphans();
       res.json({ removed });
     } catch (error) {
