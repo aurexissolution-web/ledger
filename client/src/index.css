@@ -134,6 +134,14 @@
     background-attachment: fixed, fixed, scroll;
   }
 
+  /* Sign-in: wiring on the left, the chili farm on the right; the join sits behind the card. */
+  .signin-canvas {
+    background-color: #1a2b21;
+    background-image: linear-gradient(rgba(15, 26, 19, 0.2), rgba(15, 26, 19, 0.2)), url("/signin-background.webp");
+    background-size: cover;
+    background-position: center;
+  }
+
   .display-title { font-family: "DM Serif Display", Georgia, serif; letter-spacing: -0.045em; line-height: 0.98; font-size: clamp(2.25rem, 4vw, 3.5rem); color: #20352a; text-wrap: balance; }
   .eyebrow { display: inline-flex; align-items: center; gap: 0.55rem; color: #77806c; font-size: 0.68rem; font-weight: 800; letter-spacing: 0.15em; text-transform: uppercase; }
   .eyebrow::before { content: ""; width: 0.4rem; height: 0.4rem; border-radius: 999px; background: linear-gradient(135deg, #6d8a6f, #22372c); box-shadow: 0 0 0 3px rgba(34, 55, 44, 0.08); }

@@ -75,7 +75,7 @@ export function SignIn() {
   const today = new Intl.DateTimeFormat(undefined, { weekday: "long", day: "numeric", month: "long" }).format(new Date());
 
   return (
-    <div className="app-canvas flex min-h-screen items-center justify-center p-4 sm:p-6">
+    <div className="signin-canvas flex min-h-screen items-center justify-center p-4 sm:p-6">
       <div className="surface-card grid w-full max-w-4xl overflow-hidden md:grid-cols-[1.05fr_1fr]">
         {/* Brand panel */}
         <aside className="relative isolate overflow-hidden bg-[linear-gradient(160deg,#2a4535_0%,#1a2b21_100%)] px-7 py-7 text-[#f6f5ee] md:px-10 md:py-11">
