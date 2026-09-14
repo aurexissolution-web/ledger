@@ -105,18 +105,20 @@ export const businessRouter = router({
     const owed = summarizeOwed(chiliSales);
     const incomeCents = subconTotals.incomeCents + chiliTotals.incomeCents;
     const outgoingsCents = subconTotals.outgoingsCents + chiliTotals.outgoingsCents;
-    const recentActivity = [
-      ...subcon.map(record => ({ id: `subcon-${record.id}`, date: record.workDate, kind: "Subcon job", title: record.jobTitle, amountCents: record.incomeCents - record.expenseCents - record.workerPaymentCents })),
+    type Activity = { id: string; date: number; kind: string; title: string; amountCents: number };
+    const latest = (activity: Activity[]) => activity.sort((a, b) => b.date - a.date).slice(0, 6);
+    const subconActivity = latest(subcon.map(record => ({ id: `subcon-${record.id}`, date: record.workDate, kind: "Subcon job", title: record.jobTitle, amountCents: record.incomeCents - record.expenseCents - record.workerPaymentCents })));
+    const chiliActivity = latest([
       ...chiliSales.map(record => ({ id: `sale-${record.id}`, date: record.saleDate, kind: "Chili sale", title: record.recipientName, amountCents: record.totalCents })),
       ...chiliExpenses.map(record => ({ id: `expense-${record.id}`, date: record.expenseDate, kind: "Chili expense", title: record.category, amountCents: -record.amountCents })),
-    ].sort((a, b) => b.date - a.date).slice(0, 6);
+    ]);
     return {
       incomeCents,
       outgoingsCents,
       profitCents: incomeCents - outgoingsCents,
-      subcon: { ...subconTotals, profitCents: subconTotals.incomeCents - subconTotals.outgoingsCents },
-      chili: { ...chiliTotals, profitCents: chiliTotals.incomeCents - chiliTotals.outgoingsCents, owedCents: owed.totalCents, owedCount: owed.count },
-      recentActivity,
+      subcon: { ...subconTotals, profitCents: subconTotals.incomeCents - subconTotals.outgoingsCents, jobCount: subcon.length, recentActivity: subconActivity },
+      chili: { ...chiliTotals, profitCents: chiliTotals.incomeCents - chiliTotals.outgoingsCents, owedCents: owed.totalCents, owedCount: owed.count, saleCount: chiliSales.length, expenseCount: chiliExpenses.length, recentActivity: chiliActivity },
+      recentActivity: latest([...subconActivity, ...chiliActivity]),
       canSeeSubcon,
     };
   }),

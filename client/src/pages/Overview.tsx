@@ -1,3 +1,4 @@
+import { BusinessSwitch, useBusinessView } from "@/components/BusinessSwitch";
 import { Reveal } from "@/components/Reveal";
 import { formatDate, formatMoney } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
@@ -30,6 +31,7 @@ function MetricCard({ label, value, hint, tone, icon: Icon }: MetricCardProps) {
 export default function Overview() {
   const [, setLocation] = useLocation();
   const overview = trpc.business.overview.useQuery();
+  const [view, chooseView] = useBusinessView("overview-business", overview.data?.canSeeSubcon ?? false);
 
   if (overview.isLoading) {
     return <OverviewSkeleton />;
@@ -46,8 +48,15 @@ export default function Overview() {
   }
 
   const { data } = overview;
-  const hasActivity = data.recentActivity.length > 0;
   const today = new Intl.DateTimeFormat(undefined, { weekday: "long", day: "numeric", month: "long" }).format(new Date());
+  const totals = view === "subcon" ? data.subcon : view === "chili" ? data.chili : data;
+  const hints = {
+    subcon: { income: `From ${plural(data.subcon.jobCount, "wiring job")}`, outgoings: "Worker pay and job costs", net: "Income less worker pay and costs" },
+    chili: { income: `From ${plural(data.chili.saleCount, "chili sale")}`, outgoings: "Farm and daily expenses", net: "Sales less expenses" },
+    both: { income: "Across both businesses", outgoings: "Costs, wages and daily expenses", net: "Income less all outgoings" },
+  }[view];
+  const activity = view === "subcon" ? data.subcon.recentActivity : view === "chili" ? data.chili.recentActivity : data.recentActivity;
+  const recordPath = view === "chili" ? "/chili" : "/subcon";
 
   return (
     <div className="page-shell">
@@ -57,7 +66,7 @@ export default function Overview() {
             <p className="eyebrow">Family business command centre</p>
             <h1 className="display-title">Everything, in balance.</h1>
             <p className="mt-3 max-w-xl text-[15px] leading-6 text-muted-foreground">
-              A clear, shared view of the wiring subcontracting and chili businesses — from money earned to the work behind it.
+              {data.canSeeSubcon ? "A clear, shared view of the wiring subcontracting and chili businesses — each on its own, or side by side." : "A clear view of the chili business — from money earned to the work behind it."}
             </p>
           </div>
           <div className="flex flex-col items-start gap-2 sm:items-end">
@@ -67,10 +76,16 @@ export default function Overview() {
         </section>
       </Reveal>
 
-      <section className="grid gap-4 lg:grid-cols-3">
-        <Reveal delay={0.05} className="h-full"><MetricCard label="Income recorded" value={formatMoney(data.incomeCents)} hint={data.canSeeSubcon ? "Across both businesses" : "From the chili business"} tone="ink" icon={ArrowUpRight} /></Reveal>
-        <Reveal delay={0.1} className="h-full"><MetricCard label="Outgoings" value={formatMoney(data.outgoingsCents)} hint="Costs, wages and daily expenses" tone="olive" icon={ArrowDownRight} /></Reveal>
-        <Reveal delay={0.15} className="h-full"><MetricCard label="Net position" value={formatMoney(data.profitCents)} hint="Income less all outgoings" tone="chili" icon={TrendingUp} /></Reveal>
+      {data.canSeeSubcon ? (
+        <Reveal delay={0.03}>
+          <BusinessSwitch value={view} onChange={chooseView} className="mb-5" />
+        </Reveal>
+      ) : null}
+
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <Reveal delay={0.05} className="h-full"><MetricCard label="Income recorded" value={formatMoney(totals.incomeCents)} hint={hints.income} tone="ink" icon={ArrowUpRight} /></Reveal>
+        <Reveal delay={0.1} className="h-full"><MetricCard label="Outgoings" value={formatMoney(totals.outgoingsCents)} hint={hints.outgoings} tone="olive" icon={ArrowDownRight} /></Reveal>
+        <Reveal delay={0.15} className="h-full sm:col-span-2 xl:col-span-1"><MetricCard label="Net position" value={formatMoney(totals.profitCents)} hint={hints.net} tone="chili" icon={TrendingUp} /></Reveal>
       </section>
 
       <Reveal delay={0.2}>
@@ -78,54 +93,94 @@ export default function Overview() {
           <div className="surface-card overflow-hidden">
             <div className="flex flex-col gap-5 border-b border-[#e9e5db] p-6 sm:flex-row sm:items-start sm:justify-between">
               <div>
-                <p className="eyebrow">Business pulse</p>
-                <h2 className="mt-2 text-xl font-semibold tracking-[-0.03em]">Income and costs, separated clearly</h2>
+                <p className="eyebrow">{view === "both" ? "Business pulse" : view === "subcon" ? "Wiring Subcon" : "Chili Agriculture"}</p>
+                <h2 className="mt-2 text-xl font-semibold tracking-[-0.03em]">{view === "both" ? "Income and costs, separated clearly" : "Money in and out"}</h2>
               </div>
               <div className="flex flex-wrap gap-2">
-                {data.canSeeSubcon ? (
-                  <button className="quick-action" onClick={() => setLocation("/subcon")}>
+                {view !== "chili" ? (
+                  <button className="quick-action whitespace-nowrap" onClick={() => setLocation("/subcon")}>
                     <BriefcaseBusiness className="h-4 w-4" /> Record Subcon work
                   </button>
                 ) : null}
-                <button className="quick-action quick-action-chili" onClick={() => setLocation("/chili")}>
-                  <Leaf className="h-4 w-4" /> Record Chili sale
-                </button>
+                {view !== "subcon" ? (
+                  <button className="quick-action quick-action-chili whitespace-nowrap" onClick={() => setLocation("/chili")}>
+                    <Leaf className="h-4 w-4" /> Record Chili sale
+                  </button>
+                ) : null}
               </div>
             </div>
-            <div className={`grid gap-4 p-6 ${data.canSeeSubcon ? "sm:grid-cols-2" : ""}`}>
-              {data.canSeeSubcon ? <BusinessPulse name="Wiring Subcon" description="Jobs, worker pay and operating costs" icon={<BriefcaseBusiness className="h-5 w-5" />} income={data.subcon.incomeCents} outgoings={data.subcon.outgoingsCents} profit={data.subcon.profitCents} accent="subcon" onOpen={() => setLocation("/subcon")} /> : null}
-              <BusinessPulse name="Chili Agriculture" description="Sales, delivery value and daily expenses" icon={<Leaf className="h-5 w-5" />} income={data.chili.incomeCents} outgoings={data.chili.outgoingsCents} profit={data.chili.profitCents} owed={data.chili.owedCents} owedCount={data.chili.owedCount} accent="chili" onOpen={() => setLocation("/chili")} />
-            </div>
+            {view === "both" ? (
+              <div className="grid gap-4 p-6 sm:grid-cols-2 xl:grid-cols-1">
+                <BusinessPulse name="Wiring Subcon" description="Jobs, worker pay and operating costs" icon={<BriefcaseBusiness className="h-5 w-5" />} income={data.subcon.incomeCents} outgoings={data.subcon.outgoingsCents} profit={data.subcon.profitCents} accent="subcon" onOpen={() => setLocation("/subcon")} />
+                <BusinessPulse name="Chili Agriculture" description="Sales, delivery value and daily expenses" icon={<Leaf className="h-5 w-5" />} income={data.chili.incomeCents} outgoings={data.chili.outgoingsCents} profit={data.chili.profitCents} owed={data.chili.owedCents} owedCount={data.chili.owedCount} accent="chili" onOpen={() => setLocation("/chili")} />
+              </div>
+            ) : view === "subcon" ? (
+              <Breakdown rows={[
+                { label: "Wiring jobs recorded", value: String(data.subcon.jobCount) },
+                { label: "Paid to workers", value: formatMoney(data.subcon.workerPaymentsCents) },
+                { label: "Other job costs", value: formatMoney(data.subcon.outgoingsCents - data.subcon.workerPaymentsCents) },
+                { label: "Average net per job", value: data.subcon.jobCount ? formatMoney(Math.round(data.subcon.profitCents / data.subcon.jobCount)) : "—", negative: data.subcon.profitCents < 0 },
+              ]} onOpen={() => setLocation("/subcon")} openLabel="Open Subcon" />
+            ) : (
+              <Breakdown rows={[
+                { label: "Chili sales recorded", value: String(data.chili.saleCount) },
+                { label: "Collected so far", value: formatMoney(data.chili.incomeCents - data.chili.owedCents) },
+                { label: `Owed to you · ${plural(data.chili.owedCount, "unpaid delivery", "unpaid deliveries")}`, value: formatMoney(data.chili.owedCents), owed: data.chili.owedCents > 0 },
+                { label: "Expenses recorded", value: String(data.chili.expenseCount) },
+              ]} onOpen={() => setLocation("/chili")} openLabel="Open Chili" />
+            )}
           </div>
 
           <div className="surface-card overflow-hidden">
             <div className="flex items-start justify-between gap-4 border-b border-[#e9e5db] p-6">
               <div>
-                <p className="eyebrow">Latest activity</p>
+                <p className="eyebrow">Latest {view === "subcon" ? "Subcon" : view === "chili" ? "Chili" : ""} activity</p>
                 <h2 className="mt-2 text-xl font-semibold tracking-[-0.03em]">Your most recent entries</h2>
               </div>
-              <button className="icon-tile icon-tile-olive lift h-10 w-10 rounded-full" onClick={() => setLocation(data.canSeeSubcon ? "/subcon" : "/chili")} aria-label="Record a new entry">
+              <button className="icon-tile icon-tile-olive lift h-10 w-10 rounded-full" onClick={() => setLocation(recordPath)} aria-label="Record a new entry">
                 <Plus className="h-4 w-4" />
               </button>
             </div>
-            {hasActivity ? (
+            {activity.length ? (
               <div className="divide-y divide-[#ece9e0] px-4 py-2">
-                {data.recentActivity.map(activity => (
-                  <ActivityRow key={activity.id} title={activity.title} kind={activity.kind} date={activity.date} amountCents={activity.amountCents} />
+                {activity.map(entry => (
+                  <ActivityRow key={entry.id} title={entry.title} kind={entry.kind} date={entry.date} amountCents={entry.amountCents} />
                 ))}
               </div>
             ) : (
               <div className="p-6">
                 <div className="empty-panel p-8 text-center">
                   <div className="icon-tile icon-tile-ink mx-auto h-11 w-11"><WalletCards className="h-5 w-5" /></div>
-                  <p className="mt-4 font-semibold">Your record book is ready.</p>
-                  <p className="mt-2 text-sm leading-6 text-muted-foreground">Add your first Subcon job or Chili sale to start seeing activity here.</p>
+                  <p className="mt-4 font-semibold">{view === "both" ? "Your record book is ready." : "Nothing recorded here yet."}</p>
+                  <p className="mt-2 text-sm leading-6 text-muted-foreground">{view === "subcon" ? "Add your first Subcon job to start seeing activity here." : view === "chili" ? "Add your first Chili sale or expense to start seeing activity here." : "Add your first Subcon job or Chili sale to start seeing activity here."}</p>
                 </div>
               </div>
             )}
           </div>
         </section>
       </Reveal>
+    </div>
+  );
+}
+
+function plural(count: number, one: string, many = `${one}s`) {
+  return `${count} ${count === 1 ? one : many}`;
+}
+
+function Breakdown({ rows, onOpen, openLabel }: { rows: { label: string; value: string; negative?: boolean; owed?: boolean }[]; onOpen: () => void; openLabel: string }) {
+  return (
+    <div className="p-6">
+      <dl className="divide-y divide-[#ece9e0] rounded-2xl border border-[#e8e4da] bg-[linear-gradient(180deg,#fdfcf8,#f8f7f1)] px-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]">
+        {rows.map(row => (
+          <div key={row.label} className="flex items-center justify-between gap-4 py-3.5">
+            <dt className={`text-sm ${row.owed ? "font-semibold text-[#9f442c]" : "text-muted-foreground"}`}>{row.label}</dt>
+            <dd className={`shrink-0 text-sm font-semibold tracking-[-0.02em] ${row.owed || row.negative ? "text-[#b34d2e]" : ""}`}>{row.value}</dd>
+          </div>
+        ))}
+      </dl>
+      <button type="button" onClick={onOpen} className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-[#314a3a] hover:underline">
+        {openLabel} <ArrowRight className="h-4 w-4" />
+      </button>
     </div>
   );
 }
@@ -189,5 +244,5 @@ function SmallTotal({ label, value, strong = false, negative = false, className 
 }
 
 function OverviewSkeleton() {
-  return <div className="page-shell animate-pulse"><div className="h-28 rounded-2xl bg-[#eae8df]" /><div className="mt-8 grid gap-4 lg:grid-cols-3"><div className="h-44 rounded-3xl bg-[#e4e6df]" /><div className="h-44 rounded-3xl bg-[#e4e6df]" /><div className="h-44 rounded-3xl bg-[#e4e6df]" /></div><div className="mt-8 grid gap-6 xl:grid-cols-2"><div className="h-96 rounded-3xl bg-[#eeece5]" /><div className="h-96 rounded-3xl bg-[#eeece5]" /></div></div>;
+  return <div className="page-shell animate-pulse"><div className="h-28 rounded-2xl bg-[#eae8df]" /><div className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-3"><div className="h-44 rounded-3xl bg-[#e4e6df]" /><div className="h-44 rounded-3xl bg-[#e4e6df]" /><div className="h-44 rounded-3xl bg-[#e4e6df]" /></div><div className="mt-8 grid gap-6 xl:grid-cols-2"><div className="h-96 rounded-3xl bg-[#eeece5]" /><div className="h-96 rounded-3xl bg-[#eeece5]" /></div></div>;
 }

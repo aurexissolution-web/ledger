@@ -293,6 +293,22 @@ describe("business procedures", () => {
     expect(overview.chili).toMatchObject({ incomeCents: 65_000, owedCents: 56_000, owedCount: 2 });
   });
 
+  it("keeps each business's totals and latest activity separate in the overview", async () => {
+    dbMock.listSubconJobs.mockResolvedValue(Array.from({ length: 7 }, (_, index) => ({ id: index + 1, workDate: 100 + index, jobTitle: `Job ${index + 1}`, incomeCents: 10_000, expenseCents: 1_000, workerPaymentCents: 4_000 })));
+    dbMock.listChiliSales.mockResolvedValue([{ id: 1, saleDate: 1, customerId: 3, recipientName: "Kedai", totalCents: 5_000, paidAt: 1 }]);
+    dbMock.listChiliExpenses.mockResolvedValue([{ id: 2, expenseDate: 2, category: "Fertiliser", amountCents: 1_500 }]);
+
+    const overview = await businessRouter.createCaller(createContext(47)).overview();
+
+    expect(overview.subcon).toMatchObject({ incomeCents: 70_000, outgoingsCents: 35_000, workerPaymentsCents: 28_000, profitCents: 35_000, jobCount: 7 });
+    expect(overview.chili).toMatchObject({ incomeCents: 5_000, outgoingsCents: 1_500, profitCents: 3_500, saleCount: 1, expenseCount: 1 });
+    expect(overview.profitCents).toBe(38_500);
+    // Newer Subcon jobs fill the combined feed, but Chili still gets its own.
+    expect(overview.recentActivity.map(entry => entry.kind)).toEqual(Array(6).fill("Subcon job"));
+    expect(overview.subcon.recentActivity.map(entry => entry.title)).toEqual(["Job 7", "Job 6", "Job 5", "Job 4", "Job 3", "Job 2"]);
+    expect(overview.chili.recentActivity.map(entry => entry.kind)).toEqual(["Chili expense", "Chili sale"]);
+  });
+
   it("rejects Chili sales for a customer the household does not own", async () => {
     dbMock.getCustomerById.mockResolvedValue(undefined);
     const caller = businessRouter.createCaller(createContext(81));
