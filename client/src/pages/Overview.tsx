@@ -210,7 +210,7 @@ function ActivityRow({ title, kind, date, amountCents }: { title: string; kind: 
 function BusinessPulse({ name, description, icon, income, outgoings, profit, owed = 0, owedCount = 0, accent, onOpen }: { name: string; description: string; icon: React.ReactNode; income: number; outgoings: number; profit: number; owed?: number; owedCount?: number; accent: "subcon" | "chili"; onOpen: () => void }) {
   const tile = accent === "subcon" ? "icon-tile-ink" : "icon-tile-chili";
   return (
-    <button type="button" onClick={onOpen} className="group lift relative rounded-2xl border border-[#e8e4da] bg-[linear-gradient(180deg,#fdfcf8,#f8f7f1)] p-5 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.9)] outline-none focus-visible:ring-[3px] focus-visible:ring-[#5f7d68]/30">
+    <button type="button" onClick={onOpen} className="@container group lift relative rounded-2xl border border-[#e8e4da] bg-[linear-gradient(180deg,#fdfcf8,#f8f7f1)] p-5 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.9)] outline-none focus-visible:ring-[3px] focus-visible:ring-[#5f7d68]/30">
       <ArrowRight className="absolute right-4 top-4 h-4 w-4 text-[#9aa198] opacity-0 transition-all group-hover:translate-x-0.5 group-hover:opacity-100" />
       <div className="flex items-start gap-3">
         <div className={`icon-tile h-10 w-10 shrink-0 ${tile}`}>{icon}</div>
@@ -219,10 +219,11 @@ function BusinessPulse({ name, description, icon, income, outgoings, profit, owe
           <p className="mt-1 text-xs leading-5 text-muted-foreground">{description}</p>
         </div>
       </div>
-      <div className="mt-6 grid grid-cols-3 divide-x divide-[#ebe7dc]">
+      {/* Three columns once the panel is wide enough; stacked rows on narrow panels so amounts never collide. */}
+      <div className="mt-6 grid gap-2 @xs:grid-cols-3 @xs:gap-0 @xs:divide-x @xs:divide-[#ebe7dc]">
         <SmallTotal label="In" value={formatMoney(income)} />
-        <SmallTotal label="Out" value={formatMoney(outgoings)} className="pl-3" />
-        <SmallTotal label="Net" value={formatMoney(profit)} strong negative={profit < 0} className="pl-3" />
+        <SmallTotal label="Out" value={formatMoney(outgoings)} className="@xs:pl-3" />
+        <SmallTotal label="Net" value={formatMoney(profit)} strong negative={profit < 0} className="@xs:pl-3" />
       </div>
       {owed > 0 ? (
         <p className="mt-4 flex items-center justify-between rounded-xl bg-[#fff4ee] px-3 py-2 text-xs font-semibold text-[#9f442c]">
@@ -236,9 +237,9 @@ function BusinessPulse({ name, description, icon, income, outgoings, profit, owe
 
 function SmallTotal({ label, value, strong = false, negative = false, className = "" }: { label: string; value: string; strong?: boolean; negative?: boolean; className?: string }) {
   return (
-    <div className={className}>
+    <div className={`flex items-baseline justify-between gap-3 @xs:block ${className}`}>
       <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">{label}</p>
-      <p className={`mt-1 text-sm tracking-[-0.03em] ${strong ? "font-bold" : "font-medium"} ${strong ? (negative ? "text-[#b34d2e]" : "text-[#294d38]") : ""}`}>{value}</p>
+      <p className={`text-sm @xs:mt-1 tracking-[-0.03em] ${strong ? "font-bold" : "font-medium"} ${strong ? (negative ? "text-[#b34d2e]" : "text-[#294d38]") : ""}`}>{value}</p>
     </div>
   );
 }
