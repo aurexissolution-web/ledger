@@ -1,4 +1,5 @@
 import { useAuth } from "@/_core/hooks/useAuth";
+import { BankPicker } from "@/components/BankPicker";
 import { MobileRecord } from "@/components/MobileRecord";
 import { Reveal } from "@/components/Reveal";
 import { PinInput, ProfileAvatar, roleLabel } from "@/components/SignIn";
@@ -10,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { trpc } from "@/lib/trpc";
+import type { BankName } from "../../../shared/banks";
 import { KeyRound, Leaf, Pencil, Plus, ShieldCheck, Trash2, Users } from "lucide-react";
 import { FormEvent, useState } from "react";
 import { toast } from "sonner";
@@ -265,9 +267,9 @@ function CustomersCard() {
 /* Staff (Dad only)                                                     */
 /* ------------------------------------------------------------------ */
 
-type StaffRecord = { id: number; name: string; icNumber: string | null; bankAccountNumber: string | null };
-type StaffForm = { name: string; icNumber: string; bankAccountNumber: string };
-const blankStaff = (): StaffForm => ({ name: "", icNumber: "", bankAccountNumber: "" });
+type StaffRecord = { id: number; name: string; icNumber: string | null; bankName: string | null; bankAccountNumber: string | null };
+type StaffForm = { name: string; icNumber: string; bankName: BankName | ""; bankAccountNumber: string };
+const blankStaff = (): StaffForm => ({ name: "", icNumber: "", bankName: "", bankAccountNumber: "" });
 
 function StaffCard() {
   const utils = trpc.useUtils();
@@ -284,7 +286,7 @@ function StaffCard() {
   const staff = (staffQuery.data ?? []) as StaffRecord[];
   const isSaving = createStaff.isPending || updateStaff.isPending;
   const openNew = () => { setEditing(null); setForm(blankStaff()); setDialogOpen(true); };
-  const openEdit = (record: StaffRecord) => { setEditing(record); setForm({ name: record.name, icNumber: record.icNumber ?? "", bankAccountNumber: record.bankAccountNumber ?? "" }); setDialogOpen(true); };
+  const openEdit = (record: StaffRecord) => { setEditing(record); setForm({ name: record.name, icNumber: record.icNumber ?? "", bankName: (record.bankName ?? "") as BankName | "", bankAccountNumber: record.bankAccountNumber ?? "" }); setDialogOpen(true); };
   const save = (event: FormEvent) => { event.preventDefault(); if (editing) updateStaff.mutate({ id: editing.id, ...form }); else createStaff.mutate(form); };
 
   return (
@@ -300,7 +302,7 @@ function StaffCard() {
         <>
           <div className="divide-y divide-[#ece9e0] md:hidden">
             {staff.map(record => (
-              <MobileRecord key={record.id} title={record.name} fields={[{ label: "IC number", value: record.icNumber || "—" }, { label: "Bank account", value: record.bankAccountNumber || "—" }]} actions={<RowActions name={record.name} onEdit={() => openEdit(record)} onDelete={() => setDeleting(record)} />} />
+              <MobileRecord key={record.id} title={record.name} fields={[{ label: "IC number", value: record.icNumber || "—" }, { label: "Bank", value: record.bankName || "—" }, { label: "Account number", value: record.bankAccountNumber || "—" }]} actions={<RowActions name={record.name} onEdit={() => openEdit(record)} onDelete={() => setDeleting(record)} />} />
             ))}
           </div>
           <div className="hidden overflow-x-auto md:block">
@@ -311,7 +313,7 @@ function StaffCard() {
                   <tr key={record.id} className="transition-colors hover:bg-[#fcfbf7]">
                     <td className="px-6 py-4 font-semibold">{record.name}</td>
                     <td className="px-4 py-4 text-sm text-muted-foreground">{record.icNumber || "—"}</td>
-                    <td className="px-4 py-4 text-sm text-muted-foreground">{record.bankAccountNumber || "—"}</td>
+                    <td className="px-4 py-4 text-sm text-muted-foreground">{record.bankName ? <><span className="font-medium text-foreground">{record.bankName}</span><br /></> : null}{record.bankAccountNumber || (record.bankName ? null : "—")}</td>
                     <td className="px-6 py-4"><div className="flex justify-end gap-1"><RowActions name={record.name} onEdit={() => openEdit(record)} onDelete={() => setDeleting(record)} /></div></td>
                   </tr>
                 ))}
@@ -330,6 +332,7 @@ function StaffCard() {
             <div className="grid gap-5 px-6 py-6">
               <FormField label="Name" required><Input required autoFocus placeholder="Full name" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} /></FormField>
               <FormField label="IC number"><Input inputMode="numeric" placeholder="Identification card number" value={form.icNumber} onChange={e => setForm({ ...form, icNumber: e.target.value })} /></FormField>
+              <FormField label="Bank"><BankPicker value={form.bankName} onChange={bankName => setForm({ ...form, bankName })} /></FormField>
               <FormField label="Bank account number"><Input inputMode="numeric" placeholder="Bank account number" value={form.bankAccountNumber} onChange={e => setForm({ ...form, bankAccountNumber: e.target.value })} /></FormField>
             </div>
             <DialogFooter className="dialog-footer px-6 py-4"><Button type="button" variant="ghost" onClick={closeDialog}>Cancel</Button><Button type="submit" disabled={isSaving}>{isSaving ? "Saving…" : editing ? "Save changes" : "Save staff member"}</Button></DialogFooter>

@@ -77,6 +77,8 @@ export type Staff = {
   userId: number;
   name: string;
   icNumber: string | null;
+  /** One of `BANK_NAMES` in shared/banks.ts. */
+  bankName: string | null;
   bankAccountNumber: string | null;
   createdAt: Date;
   updatedAt: Date;

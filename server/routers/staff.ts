@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { BANK_NAMES } from "../../shared/banks";
 import * as db from "../db";
 import { adminProcedure, router } from "../_core/trpc";
 import { textInput } from "./business";
@@ -6,6 +7,7 @@ import { textInput } from "./business";
 const staffRecordSchema = z.object({
   name: z.string().trim().min(1).max(180),
   icNumber: textInput(40),
+  bankName: z.enum(BANK_NAMES).or(z.literal("")).optional().transform(value => value || null),
   bankAccountNumber: textInput(40),
 });
 

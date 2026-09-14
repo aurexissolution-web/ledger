@@ -68,4 +68,21 @@ describe("staff procedures", () => {
 
     expect(dbMock.createStaff).toHaveBeenCalledWith(expect.objectContaining({ userId: 47, name: "A worker" }));
   });
+
+  it("stores the chosen bank, and no bank when none is picked", async () => {
+    const caller = staffRouter.createCaller(createContext(47));
+
+    await caller.create({ ...staffInput, bankName: "Maybank" });
+    await caller.create({ ...staffInput, bankName: "" });
+
+    expect(dbMock.createStaff).toHaveBeenNthCalledWith(1, expect.objectContaining({ bankName: "Maybank" }));
+    expect(dbMock.createStaff).toHaveBeenNthCalledWith(2, expect.objectContaining({ bankName: null }));
+  });
+
+  it("rejects a bank that isn't on the list", async () => {
+    const caller = staffRouter.createCaller(createContext(47));
+
+    await expect(caller.create({ ...staffInput, bankName: "Made-up Bank" as never })).rejects.toThrow();
+    expect(dbMock.createStaff).not.toHaveBeenCalled();
+  });
 });

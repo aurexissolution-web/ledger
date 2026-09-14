@@ -110,6 +110,8 @@ create table if not exists staff (
   updated_at timestamptz not null default now()
 );
 create index if not exists staff_user_idx on staff (user_id);
+-- Added after launch: which bank the account number belongs to (a name from shared/banks.ts).
+alter table staff add column if not exists bank_name text;
 
 -- Metadata for receipt/invoice files; the bytes live in the "attachments"
 -- storage bucket at the path in file_id / thumb_file_id.
